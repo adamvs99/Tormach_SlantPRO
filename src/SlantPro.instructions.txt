@@ -1,0 +1,97 @@
+Tormach SlantPRO_1.0.10.cps
+
+Change log since last time:
+2016-18-01 : fixed bug on writing G30 before first tool call
+
+General instruction:
+
+Tool descriptions ( 'Tool Lib' ):
+    Turret Number: If set greater than zero indicates the tool cuts from the X+ direction. The tool does not have to be on a turret.
+    Manual Tool Change: Indicates the tool is changed manually, eg, QCTP tooling.
+    Tool Numbers: 1-25. Tool 26 is reserved for a bar puller, if there is one, if not, tool 26 is open.
+
+    Examples:
+        An inverted profiling tool on the gang plate cutting from 'X+': Turret Number > 0; Manual Tool Change -  'false'; Tool Number 1-25.
+        An non-inverted profiling tool on the gang plate cutting from 'X-': Turret Number = 0; Manual Tool Change -  'false'; Tool Number 1-25.
+        Tool on the turret: Turret Number > 0; Manual Tool Change -  'false'; Tool Number 1-25.
+        QCTP tool cutting from 'X-': Turret Number = 0; Manual Tool Change -  'true'; Tool Number 1-25.
+        Gang Plate Tooling cutting 'X0' ( drills, taps, ect. ) : Turret Number = 0; Manual Tool Change - 'false'; Tool Number 1-25.
+        Bar Puller: Turret Number = 0; Manual Tool Change -  'false'; Tool Number - 26.
+        
+Properties:
+    rapidFeed: This is in IPM; default set to 60.
+
+    manualToolChangeTime: Time in seconds it takes to manually change a tool on the QCTP. This is useful to help calculate total cycle time.
+
+    maximumSpindleSpeed: Specifies the maximum clamp speed for ALL ops. This will override any 'faster' value brought in from CAM.
+
+    using_GangTooling: Hints that gang tooling is being used. If two separate gang tools have adjacent ops, setting this 'true' will make the carriage move to a safe Z, automatically index to the next tool on the gang plate and start the next op without having to hit 'Cycle Start'. Other ops, turret and/or QCTP, as will gang tool ops adjacent to turret or QCTP ops, will have a 'G30' followed by 'M0' ( on the next line ), generated between ops. In order for this to work the lathe must be in 'Gang Tool' mode.
+
+    tormachMillLathing: Turn this to true if using Tormach mill as vertical lathe, tooling descriptions above apply.
+
+    forceX_first_onFirstMove: Forces the X value to be the first block on the initial move, followed by the Z value on the next line.
+
+    showNotes: Specifies that operation notes should be output.
+
+    debugOutput: Prints debugging info into the gcode through calls to the function 'debugOut'. Note: 'debugOut' must have 'true' as it's first argument followed by the debugging string to see debug info in the gcode. Example: debugOut( true, " X= " + x ); - outputs the string in the gcode --- debugOut( " X= " + x ); does not ( is suppressed ).
+
+    gangToolSafeMargin: This value is in inches; is added to the safe 'Z' calculated for adjacent gang tool ops. The safe 'Z' is calculated by taking the maximum of the tool lengths for adjacent gang tool ops. ( see 'using_GangTooling' ).
+
+    writeToolingInfo: Set this to 'true', the post will create a tool/op header at the top of the gcode, and at the top of each op.
+
+    warnings: Set to true for a warning report.
+
+    actionsFilePath: This specifies a local drive path to a folder which contains files used in 'actions'. Note: This path may need to be contained in quotes; for Windows users, back-slashes need addition back-slash, eg, "C:\\Users\\Public\\Documents\\Autodesk\\Fusion\\actions".
+    
+    passThroughFilePath: This specifies a local drive path to a folder which contains files used in 'PassThrough's, *should* be a different folder than 'actions' above. Same path description rules apply as 'actionFilePath'.
+
+
+
+Actions:
+    Actions are a section you can put in the ops list by right clicking on the 'Setup' item and selecting 'New Operation', then 'Manual NC'. It's one of the drop down entries and takes a string as data.
+    In this string you can use this to specify a 'binding', a 'file', and a 'modifier' for the action text. These entries, if they refer to files, get read and parsed before any operations and as such can be anywhere in the operation list and will bind to the operation that has the same name as the 'binding'. The operation name can have several parts separated by a colon. The binding will happen on the last part. Example: Operation name is 'QCTP:T7:doGroove', the action will be bound to 'doGroove'.
+    This can used to replace any movement code of the operation, and is intended as way to override in case you need to do something very special, or, where, possibly, the CAM doesn't support the kind of geometry your trying to cut.
+    The syntax for this is <binding>:file:<filename>[:modifier]. Eg, the string: 'LeftDovetail:file:thinbitLDoveTail.nc:suppress' ( actual string has no single quotes ) will bind to the operation 'LeftDovetail', and bring in the file: 'thinbitLDoveTail.nc' from the directory spec'd in the property 'actionsFilePath', using the modifier 'suppress'.
+    
+    Modifier are:
+        prepend  - the file contents are pre-pended to the movement code for the bound-to operation.
+        suppress - replaces the movement code of the operation.
+        append   - appends the movement code of the operation.
+        <no modifer> - same as 'suppress'
+        
+    Parsing imported gcode: When you import gcode like this, the initial G96/G97 code is generated from the tool def in the ( bound to ) operation's setup, so the initial tool speed, CSS, should NOT be included in this action file. Initial tool and spindle code will be generated, followed by the 'file' contents. The file content is parsed and the correct minimum 'Z' and cycle times** show up in the operations list at the beginning of the output in the summary.  If there is no 'M8' in the file code, an 'M8' will be inserted at the fist instance of a 'Z' move if the tool is setup to use coolant. Similarly an M5 will be generated at the end if the spindle is in the running state from the inital G96/G97 and no M5 was found in the file code. An 'M9' will be generated is the coolant is on and no M9 was found in the file code. Just like any other operation. M3s/M4s are part of the pre-generated spindle code defined in the tool description.
+
+PassThrough: 'PassThroughs' are created the same way as actions. You can specify: file:<file name>, the file will be brought in from the path spec'd in the 'passThroughFilePath' property. Unlike 'actions', this MUST exist in it's correct spot in the operations list; no parsing or evaluation is done, it is simply put in-line in the gcode output. It's good for instructions or messages. If no 'file:' sub string is detected the string argument for the 'PassThrough' will act like a pass through, ie, the string is output wherever the 'PassThrough' occurs in the ops sequence in the browser. Eg, this might be good for setting up a loop in the gcode with some ops in between, or to place a tool in a certain position before the next op begins.
+Multiple line PassThroughs use the delimeter '|'. For example, pass though text of: ;this|;is a |;multiple|;passthough line
+Would output:
+;this
+;is a
+;multiple
+;passthough line
+
+Stock Transfer: You can implement this the same way as an 'action' described above. There is currently no tool tab on the Stock Transfer setup, so this post forces it to tool #26. If you use this for a bar puller, of a simple stop, it will always call tool 26.
+
+Looping: Say you have a body of code ( the whole part , eg ) you need to repeat to consume an entire bar. The first section ( before any real cutting ) needs to be a 'PassThrough' with code such as : 'o0100 REPEAT [32]' ( no single quotes ). This is a loop 'head' indicating to linuxcnc that you want to loop 32 times. The last 'PassThrough' would be a line: 'o0100 endrepeat' ( no single quotes ) - this is the loop end. Most likely a 'Stock Transfer' would be the last section before this last 'PassThrough'.
+
+The purpose of this is? You can make changes in your CAD/CAM, and any special code that would have had to have been copied and pasted in the output will automatically be put in place.
+
+Warnings: Some rudimentary warnings have been implemented in this post. If the property: 'warnings' is set to 'Yes' they will be displayed at the bottom of the tool/op header at the beginning of the gcode. So far warnings implemented are:
+    1) If a counter clockwise spindle rotation is detected on a drill.
+    2) If a counter clockwise spindle rotation is detected on a tool other than a left hand tap.
+    3) If the final move on a boring operation is below Z0. This may cause the tool to retract through the part on the next call to G30. This is corrected by add a 'home' at end in CAM.
+    4) If the pitch is obviously too big on a tap. 
+
+
+Mill turning:  Tormach mills can be used as a simple lathe and is pretty effective at doing some simple profiling. By creating a fixture to be held in a collet in the spindle; clamping the work piece to that fixture; clamping a lathe tool holder in the vise, this can be done. To enable this: turn property 'tormachMillLathing' to true. Unlike the SlantPRO, X+ and X- tool orientations are inverted. If the lathe tool cuts *from* X+ ( the right side of the spindle ) it needs to have a turret number of '0' in it's tool description in CAM. If the tool cuts from the left side of the mill it need to have a turret number > 0 ( this is an indication to the post processor the tool cuts from that direction ). In order to properly view the back plot in PathPilot or NC Corrector, the image needs to be rotated 180 degrees and turned upside-down, ie, Z axis should point down, Y axis back ( away from you ). CSS ( Use constant surface speed ) for the lathe tool MUST be turned off - and - 'Use feed per revolution' MUST be turned off. The property 'maximumSpindleSpeed' is ignored, there is no overriding clamp speed, becuase the mill is capable of much higher rpm. It also make for easier feed calculations. 
+
+Software practices: All development is done under version control, so if things get really screwed up, the current changes can be backed out easily. 'gold' output files, which attempt to exercise all the functionality, are kept so the output from a changed version can be checked ( diffed ) against the 'gold' files to immediately see if things have gone awry.
+
+**Cycle times: There's a pretty rudimentary algorithm to calculate CT. It's based on X,Z deltas depending on whether they are rapid or under feed. CSS rpm is gotten by taking an average of diameters over the op. Arc segments are calculated as flat 115% of their start and end positions currently, but this can, will, might be fixed in future posts. Did do a test on an op this way by comparing the cutting time on the SlantPRO itself. It was a 2+ minutes op - real time vs calculated was off by a second or so; it's actually working pretty well! 
+
+[usual] Disclaimer: It's a homegrown effort that seems to be working OK on *my* machine, but *may* have mistakes and is not guaranteed in any way. Using this software may cause scrapped parts, tool breakage, machine damage, and otherwise ruin your day! Contains unverified code to support 'Turret mode', I (sniff) don't have a turret yet! Please check the PathPilot tool path window, check gcode, and run air passes, to check validity.
+
+
+Thanks again for all the feedback and spirited discussion..
+    
+           
+   
