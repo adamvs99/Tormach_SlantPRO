@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-24-01 10:06:20 +0200 (to, 24 jan 2016) $
+$Date: 2016-21-02 19:00:20 +0200 (to, 21 feb 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -62,9 +62,14 @@ Changes:
 2016-18-01 : fixed bug on writing G30 before first tool call
 2016-20-01 : Added 'warnings' buffer object
 2016-23-01 : Fixed: No G96/G97 or clamp on 'tormachMillLathing'; no G95 on 'tormachMillLathing'
+2016-29-01 : Fixed: fails if action name can't be matched - no ToolInfo, no currentSection
+2016-21-02 : Fixed: won't work on MAC. properties.writeToolinfo changed to properties.writeToolingInfo - these names can;t be the same!
+
+== OUTSTANDING ISSUES =======================================================================================
+2016-29-01 : Add Warning on retractinto X that is less than cutting min diam of boring bar
 */
 
-var g_description = "Tormach 15LSlantPRO-1.1.10";
+var g_description = "Tormach 15LSlantPRO-1.1.12";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
@@ -105,10 +110,12 @@ properties = {
     showNotes: false,               // specifies that operation notes should be output.
     debugOutput: false,             // prints debugging info in post
     gangToolSafeMargin : 1,         // the extra margin for gang tool pull back
-    writeToolInfo : true,           // prints out the tool info header
+    writeToolingInfo : true,           // prints out the tool info header
     warnings: true,                 // issues a warning is something is found out of kilter
-    actionsFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\Actions",             // actions code file folder     
-    passThroughFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\PassthroughCode"  // pass through code file folder    
+//  actionsFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\Actions",             // actions code file folder     
+//  passThroughFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\PassthroughCode"  // pass through code file folder    
+    actionsFilePath : "/Users/adamvs/Autodesk/Fusion 360 CAM/Actions",             // actions code file folder     
+    passThroughFilePath : "/Users/adamvs/Autodesk/Fusion 360 CAM/PassthroughCode"  // pass through code file folder    
 };
 
 //--------------------------------------------------------------------------------------------------------------
@@ -135,6 +142,7 @@ function extFileRec( tooling, binding, type, modifer ) {
     //---member functions-------------------------------
     this.hasData =  function( ) { return this.data.length; };
     this.noData =   function( ) { return this.data.length === 0; };
+    this.noBindingFound = function( ) { return this.toolInfo === undefined; };
     //---private function ------------------------------
     this._findTool = function ( ) {
 //      debugOut( " _findTool: " + " rawfile: " + this.rawfile );
@@ -358,7 +366,7 @@ var pState = { OPENING : 0, IN_SECTIONS : 1, LAST_SECTION: 2, CLOSING: 3 };
 
 //--------------------------------------------------------------------------------------------------------------
 // encapsulate the array of external files used in actions.
-function actionsInfo ( tooling ) {
+function actionsInfo ( tooling, warnings ) {
     this.actions = [ ];
     this.toolingCollectionRef = tooling;
 
@@ -369,14 +377,20 @@ function actionsInfo ( tooling ) {
         var action = new extFileRec( this.toolingCollectionRef, parms[ ge.BINDING ], "action", parms[ ge.MODIFIER ] );
     
         action.rawfile = _onGetLocalTextFile( folder, parms[ ge.NAME ], action.data );
-        if ( action.hasData( ) ) { 
-            action._findLeastZ( );
-            action._findLeastX( );
-            action._calcCT( );
-            action._findTool( );
-            action._parseMCodes( );
-            this.actions.push( action );
+        if ( action.noData( ) )
+            return;
+        if ( action.noBindingFound( ) ) {
+            warnings.pushWarning( " Section: '" + parms[ ge.BINDING ] + "' not found to bind." );
+//          error(localize(  " Section: '" + parms[ ge.BINDING ] + "' not found to bind."  ) );
+            return;
         }
+        action._findLeastZ( );
+        action._findLeastX( );
+        action._calcCT( );
+        action._findTool( );
+        action._parseMCodes( );
+        this.actions.push( action );
+
     };
     
     this.stowAction = function( actionString ) {
@@ -558,7 +572,7 @@ function toolRecord ( section_Id, warnings ) {
     
 
     this.writeToolHeader = function( section ) {
-        if ( properties.writeToolInfo )  {
+        if ( properties.writeToolingInfo )  {
             writeComment("==============================================================");
             writeComment( "Tool: " + this.toolLine );
             writeComment( "Time: " + formatCycleTime( _getToolCT( getCurrentSectionId( ) ) ) );
@@ -574,7 +588,7 @@ function toolRecord ( section_Id, warnings ) {
     this.writeOpHeader = function( section ) {
         var comment = section.hasParameter( "operation-comment" ) ? section.getParameter( "operation-comment" ) : undefined;
         
-        if ( properties.writeToolInfo )  {
+        if ( properties.writeToolingInfo )  {
             writeComment("..   ..   ..   ..   ..   ..   ..   ..   ..   ..   ..   ..   ..");
             if ( comment !== undefined )  {
                 writeComment( "  Op: " + comment);
@@ -1017,7 +1031,6 @@ var g_spindle;
 var g_tooling;
 var g_warnings;
 var g_actions;
-var g_passThroughs = [ ];
 
 //==================================================================================================
 // action stuff
@@ -1204,7 +1217,6 @@ function onParameter( ) {
 }
 
 function onOpen( ) {
-
     // this must go first...
     g_warnings = new warnings_( );
     g_tooling = new toolingInfo( g_warnings );
@@ -1217,13 +1229,14 @@ function onOpen( ) {
     g_retract = new retract( );
     g_coolant= new coolant( );
     g_spindle = new spindle( );
-    g_actions = new actionsInfo( g_tooling );
+    g_actions = new actionsInfo( g_tooling, g_warnings );
     g_sequenceNumber = new lineNumber( );
     
     if ( !properties.separateWordsWithSpace )
         setWordSeparator( "" );
 
     writeProgramStart( );
+
 }
 
 function onComment( message ) {
@@ -1293,7 +1306,7 @@ function writeInitMachineState( ) {
 
 function writeToolInfo( ) {
     
-    if ( properties.writeToolInfo === false )
+    if ( properties.writeToolingInfo === false )
         return;
         
     var result = [ ];
@@ -1306,6 +1319,7 @@ function writeToolInfo( ) {
    
     // preload all the 'action' commands
 
+
     for ( var i = 0; i < numberOfSections; ++i ) {
         var section = getSection( i );
         var secTn = g_tooling.getTN( section );
@@ -1314,7 +1328,7 @@ function writeToolInfo( ) {
             tn_ = secTn;
         }
     }
-    
+
     tn_= 0;
     var lastToolSectionId = -1;
     var ct = 0;
@@ -1324,7 +1338,6 @@ function writeToolInfo( ) {
         var section = getSection( i );
         var currTN = g_tooling.getTN( section );
 
-        
         // the next tool is up...
         if ( currTN !== tn_) {
             // fix up the last tool entry...on the first iteration tn_ will be 0
@@ -1362,7 +1375,7 @@ function writeToolInfo( ) {
     writeComment("Tool / Op list ..............................................................................");
     for ( var i in result )
         writeComment( result[ i ] );
-    writeComment( "" );
+    writeComment( );
     writeComment( "Approximate tool change time:  ................  :  " + formatCycleTime( g_tooling.getToolChangeTime( ) ) );
     writeComment( "total cycle time ( with approx tool change time ):  " + formatCycleTime( totalCT + g_tooling.getToolChangeTime( ) ) );
     writeComment( );
@@ -1374,9 +1387,8 @@ function writeInitialHeaderInfo( ) {
 //  writeComment( "       Material: " + getParameter( "inventor:Material" ) );
     writeComment( );
     writeComment( g_fileGenerated );
-    writeComment( "" );
     writeComment( );
-    
+    writeComment( );
 }
 
 function writeSectionNotes( section ) {
@@ -1780,7 +1792,7 @@ function onCommand(command) {
             onCommand(tool.clockwise ? COMMAND_SPINDLE_CLOCKWISE : COMMAND_SPINDLE_COUNTERCLOCKWISE);
             return;
         default:
-            onUnsupportedCommand(command);
+//          onUnsupportedCommand(command);
     }
 }
 
@@ -1791,7 +1803,6 @@ function writeParkTool( ) {
 }
 
 function onSectionEnd( ) {
-//  debugOut( " in onSectionEnd" );
     if ( g_actions.actionIsSuppress( ) || g_actions.actionIsAppend( ) )
         g_actions.postActionData( );
 
@@ -1881,12 +1892,14 @@ function _onGetLocalTextFile( path, fn, target ) {
     var filename = fn;
     var filepath = new String( path );
     var rawfile;
+    var re = new RegExp( /(A-Za-z0-9_)\\(A-Za-z0-9_)/ );
+    var pathDelim = String( filepath ).match( re ) ? "\\" : "/";
     
     if ( filepath.length === 0 )
         writeComment( " Error : no file or path" + filepath );
     else {
-        if ( String( filepath ).charAt( filepath.length -1 ) !== "\\" )
-            filepath += "\\";
+        if ( String( filepath ).charAt( filepath.length -1 ) !== pathDelim )
+            filepath += pathDelim;
         if ( ! FileSystem.isFolder( filepath ) ) {
             writeln( "" );
             writeComment( "**error**error**error" );
@@ -1912,6 +1925,7 @@ function _onGetLocalTextFile( path, fn, target ) {
                 
                 for ( var i in lines ) 
                     target.push( new String( lines[ i ] ) );
+
             }
         }
         catch ( e ) {
