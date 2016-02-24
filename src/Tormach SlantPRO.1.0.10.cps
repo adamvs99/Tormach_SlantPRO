@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-21-02 19:00:20 +0200 (to, 21 feb 2016) $
+$Date: 2016-24-02 07:32:20 +0200 (to, 24 feb 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -64,12 +64,13 @@ Changes:
 2016-23-01 : Fixed: No G96/G97 or clamp on 'tormachMillLathing'; no G95 on 'tormachMillLathing'
 2016-29-01 : Fixed: fails if action name can't be matched - no ToolInfo, no currentSection
 2016-21-02 : Fixed: won't work on MAC. properties.writeToolinfo changed to properties.writeToolingInfo - these names can;t be the same!
+2016-23-02 : Fixed: G4 - Pxxx outputs in milliseconds, not seconds.
 
 == OUTSTANDING ISSUES =======================================================================================
 2016-29-01 : Add Warning on retractinto X that is less than cutting min diam of boring bar
 */
 
-var g_description = "Tormach 15LSlantPRO-1.1.12";
+var g_description = "Tormach 15LSlantPRO-1.1.15";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
@@ -322,7 +323,7 @@ var feedFormat = createFormat({decimals:(unit === MM ? 4 : 5), forceDecimal:true
 var toolFormat = createFormat({decimals:0, width:4, zeropad:true});
 var rpmFormat = createFormat({decimals:0});
 var secFormat = createFormat({decimals:3, forceDecimal:true}); // seconds - range 0.001-99999.999
-var milliFormat = createFormat({decimals:0}); // milliseconds // range 1-9999
+var dwellFormat = createFormat({decimals:2, forceDecimal:true}); // milliseconds // range 1-9999
 var taperFormat = createFormat({decimals:1, scale:DEG});
 var timeFormat = createFormat({width:2, zeropad:true, decimals:0});
 var infoFormat = createFormat({decimals:4});
@@ -1515,11 +1516,10 @@ function onSection( ) {
     ++g_sectionCount;
 }
 
-function onDwell(seconds) {
-    if (seconds > 99999.999)
-        warning(localize("Dwelling time is out of range."));
-    milliseconds = clamp(1, seconds * 1000, 99999999);
-    writeBlock( gFormat.format(4), "P" + milliFormat.format(milliseconds));
+function onDwell( seconds ) {
+    if (seconds > 99.999)
+        warning( localize("Dwelling time is out of range.") );
+    writeBlock( gFormat.format( 4 ), "P" + dwellFormat.format( seconds ) );
 }
 
 function onRadiusCompensation( ) {  g_pendingRadiusComp.setPendingRadiusComp( radiusCompensation ); }
