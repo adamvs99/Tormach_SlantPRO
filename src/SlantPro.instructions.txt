@@ -62,12 +62,20 @@ Actions:
     Parsing imported gcode: When you import gcode like this, the initial G96/G97 code is generated from the tool def in the ( bound to ) operation's setup, so the initial tool speed, CSS, should NOT be included in this action file. Initial tool and spindle code will be generated, followed by the 'file' contents. The file content is parsed and the correct minimum 'Z' and cycle times** show up in the operations list at the beginning of the output in the summary.  If there is no 'M8' in the file code, an 'M8' will be inserted at the fist instance of a 'Z' move if the tool is setup to use coolant. Similarly an M5 will be generated at the end if the spindle is in the running state from the inital G96/G97 and no M5 was found in the file code. An 'M9' will be generated is the coolant is on and no M9 was found in the file code. Just like any other operation. M3s/M4s are part of the pre-generated spindle code defined in the tool description.
 
 PassThrough: 'PassThroughs' are created the same way as actions. You can specify: file:<file name>, the file will be brought in from the path spec'd in the 'passThroughFilePath' property. Unlike 'actions', this MUST exist in it's correct spot in the operations list; no parsing or evaluation is done, it is simply put in-line in the gcode output. It's good for instructions or messages. If no 'file:' sub string is detected the string argument for the 'PassThrough' will act like a pass through, ie, the string is output wherever the 'PassThrough' occurs in the ops sequence in the browser. Eg, this might be good for setting up a loop in the gcode with some ops in between, or to place a tool in a certain position before the next op begins.
-Multiple line PassThroughs use the delimeter '|'. For example, pass though text of: ;this|;is a |;multiple|;passthough line
-Would output:
-;this
-;is a
-;multiple
-;passthough line
+    Multiple line PassThroughs use the delimeter '|'. For example, pass though text of: ;this|;is a |;multiple|;passthough line
+    Would output:
+    ;this
+    ;is a
+    ;multiple
+    ;passthough line
+    
+    Using two or more '|'s will result in empty lines. For example: M5|M9||G30|M0
+    Would output:
+    M5
+    M9
+
+    G30
+    M0
 
 Stock Transfer: You can implement this the same way as an 'action' described above. There is currently no tool tab on the Stock Transfer setup, so this post forces it to tool #26. If you use this for a bar puller, of a simple stop, it will always call tool 26.
 
