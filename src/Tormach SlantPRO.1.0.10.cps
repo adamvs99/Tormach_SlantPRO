@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-24-02 07:32:20 +0200 (to, 24 feb 2016) $
+$Date: 2016-28-02 15:05:20 +0200 (to, 28 feb 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -65,12 +65,15 @@ Changes:
 2016-29-01 : Fixed: fails if action name can't be matched - no ToolInfo, no currentSection
 2016-21-02 : Fixed: won't work on MAC. properties.writeToolinfo changed to properties.writeToolingInfo - these names can;t be the same!
 2016-23-02 : Fixed: G4 - Pxxx outputs in milliseconds, not seconds.
+2016-28-02 : Removed: bounding '%' lines.
+             Fixed: last G30 in gang tool mode no longer writes an M0.
 
 == OUTSTANDING ISSUES =======================================================================================
 2016-29-01 : Add Warning on retractinto X that is less than cutting min diam of boring bar
+2016-28-02 : Add special case for gang tool setup .. no M0s
 */
 
-var g_description = "Tormach 15LSlantPRO-1.1.15";
+var g_description = "Tormach 15LSlantPRO-1.1.16";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
@@ -485,6 +488,7 @@ function toolRecord ( section_Id, warnings ) {
     this.compOffset = 0;
     this.tool30Type = tool30Type.NORMAL;
     this.c_barPullerToolNum = 26; // DO NOT CHANGE
+    this.isLastTool = false;
     this.toolIsNewTool = true;
 
     
@@ -633,7 +637,8 @@ function toolRecord ( section_Id, warnings ) {
             else {
                 writeln("");
                 writeBlock( gFormat.format(30) );
-                writeBlock( mFormat.format(0) );
+                if ( ! this.isLastTool && ! tooling.isPureGangTooling( ) )
+                    writeBlock( mFormat.format(0) );
             }
         }
         else {
@@ -645,6 +650,7 @@ function toolRecord ( section_Id, warnings ) {
     this.isGang = function( ) { return this.toolCuttingDir === toolType.GANG; };
     this.valid = function( ) { return this.toolNum !== 0 && this.sectionName !== "" && this.sectionName.length > 0; };
     this.matchName = function ( name ) { return this.sectionMatchName.search( name ) >= 0; };
+    this.setLastTool = function( ) { this.isLastTool = true; };
 //  debugOut( " ToolInfo: sectionId: " + this.sectionId + " toolNum: " + this.toolNum );
 }
 
@@ -667,6 +673,7 @@ function toolingInfo( warnings ) {
     this.totalToolChangeTime = 0;
     this.initalized = false;
     this.tool0_state = true;
+    this.isPureGangToolMode = false;
     
     var numberOfSections = getNumberOfSections( );
     var numberOfTools = 0;
@@ -713,17 +720,23 @@ function toolingInfo( warnings ) {
             ++numberOfTools;
         }
         this.tooling.push( tr );
+        if ( i === numberOfSections - 1 )
+            tr.setLastTool( );
         
     }
     this.initalized = true;
-    if ( this.adjacentGangToolingCount > 0 && properties.using_GangTooling )
+    if ( this.adjacentGangToolingCount > 0 && properties.using_GangTooling )  {
         this.promptString = "   **** PUT LATHE INTO GANG TOOL MODE ***";
+        if ( this.xMinusCount <=1 && this.xPlusCount <= 1 )
+            this.isPureGangToolMode = true;
+    }
     else if ( this.xMinusCount > 0 && this.xPlusCount === 0 )
         this.promptString = "   **** PUT LATHE INTO QCTP MODE ***";
     else if ( this.xMinusCount <= 1 && this.xPlusCount > 0 )
         this.promptString = "   **** PUT LATHE INTO TURRET MODE ***";
     else if ( this.xMinusCount > 0 && this.xPlusCount > 0 )
         this.promptString = "   **** PUT LATHE INTO TURRET MODE ***";
+//debugOut( " toolingInfo: xMinusCount: " + this.xMinusCount + " xPlusCount: " + this.xPlusCount + " gangCount: " +  this.gangCount );
     
     // attemp to calulate the total tool change time...
     var factor = unit === MM ? 25.4 : 1;
@@ -771,6 +784,7 @@ function toolingInfo( warnings ) {
         return undefined;
     };
     this.getToolChangeTime = function( ) { return this.totalToolChangeTime; };
+    this.isPureGangTooling = function( ) { return this.isPureGangToolMode; };
     
 }
 //--------------------------------------------------------------------------------------------------------------
@@ -1279,7 +1293,6 @@ function _entryFixup( entry, minZ, minX, ct, maxComment ) {
 }
 
 function writeProgramStart( ) {
-    writeln("%");
     if ( programName ) {
         writeComment( "  program:   " + programName );
         if ( programComment )
@@ -1825,7 +1838,6 @@ function onClose() {
     onImpliedCommand(COMMAND_END);
     onImpliedCommand(COMMAND_STOP_SPINDLE);
     writeBlock( mFormat.format( 30 ) ); // stop program, spindle stop, coolant off
-    writeln("%");
 }
 
 function _calcThreadPasses( toolClear, majDiam, minDiam, requestPasses ) {
