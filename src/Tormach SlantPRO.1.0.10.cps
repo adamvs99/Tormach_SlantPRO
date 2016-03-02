@@ -114,8 +114,9 @@ properties = {
     showNotes: false,               // specifies that operation notes should be output.
     debugOutput: false,             // prints debugging info in post
     gangToolSafeMargin : 1,         // the extra margin for gang tool pull back
-    writeToolingInfo : true,           // prints out the tool info header
+    writeToolingInfo : true,        // prints out the tool info header
     warnings: true,                 // issues a warning is something is found out of kilter
+    partLoadTime: 65,               // time it takes to reload a part in the holding device ( in seconds )
 //  actionsFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\Actions",             // actions code file folder     
 //  passThroughFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\PassthroughCode"  // pass through code file folder    
     actionsFilePath : "/Users/adamvs/Autodesk/Fusion 360 CAM/Actions",             // actions code file folder     
@@ -1385,13 +1386,15 @@ function writeToolInfo( ) {
         writeComment( g_tooling.getLatheModePrompt( ) );
         writeComment( );
     }
+    var totalPartTime = totalCT + g_tooling.getToolChangeTime( ) + properties.partLoadTime;
     
     writeComment("Tool / Op list ..............................................................................");
     for ( var i in result )
         writeComment( result[ i ] );
     writeComment( );
     writeComment( "Approximate tool change time:  ................  :  " + formatCycleTime( g_tooling.getToolChangeTime( ) ) );
-    writeComment( "total cycle time ( with approx tool change time ):  " + formatCycleTime( totalCT + g_tooling.getToolChangeTime( ) ) );
+    writeComment( "Approximate part load time:  ..................  :  " + formatCycleTime( properties.partLoadTime ) );
+    writeComment( "total cycle time ( with approx tool change time ):  " + formatCycleTime( totalPartTime )  + "   (" + secFormat.format( totalPartTime / 3600 ) + " hrs. )" );
     writeComment( );
 }
 
