@@ -1,4 +1,4 @@
-Tormach SlantPRO_1.0.10.cps
+Tormach SlantPRO_1.0.16.cps
 
 Change log since last time:
 2016-18-01 : fixed bug on writing G30 before first tool call
@@ -9,9 +9,13 @@ Tool descriptions ( 'Tool Lib' ):
     Turret Number: If set greater than zero indicates the tool cuts from the X+ direction. The tool does not have to be on a turret.
     Manual Tool Change: Indicates the tool is changed manually, eg, QCTP tooling.
     Tool Numbers: 1-25. Tool 26 is reserved for a bar puller, if there is one, if not, tool 26 is open.
+    GangTools: If a tool cuts from the X+ direction and is on the gang plate, then there must be the word 'gang' in the Tool Library / Tool Definition / Post Processor / Comment field.
+               This is the last tab in the tool setup. Fusion currently gives no way to set up a combination of an X+, or X- cutting tool that is on a gang plate.
+               So it has to be done this way.
 
     Examples:
-        An inverted profiling tool on the gang plate cutting from 'X+': Turret Number > 0; Manual Tool Change -  'false'; Tool Number 1-25.
+        An inverted profiling tool on the gang plate cutting from 'X+': Turret Number > 0; Manual Tool Change -  'false'; the word 'gang:' in the 
+            Tool Library / Tool Definition / Post Processor / Comment field ; Tool Number 1-25.
         An non-inverted profiling tool on the gang plate cutting from 'X-': Turret Number = 0; Manual Tool Change -  'false'; Tool Number 1-25.
         Tool on the turret: Turret Number > 0; Manual Tool Change -  'false'; Tool Number 1-25.
         QCTP tool cutting from 'X-': Turret Number = 0; Manual Tool Change -  'true'; Tool Number 1-25.
@@ -36,6 +40,8 @@ Properties:
     debugOutput: Prints debugging info into the gcode through calls to the function 'debugOut'. Note: 'debugOut' must have 'true' as it's first argument followed by the debugging string to see debug info in the gcode. Example: debugOut( true, " X= " + x ); - outputs the string in the gcode --- debugOut( " X= " + x ); does not ( is suppressed ).
 
     gangToolSafeMargin: This value is in inches; is added to the safe 'Z' calculated for adjacent gang tool ops. The safe 'Z' is calculated by taking the maximum of the tool lengths for adjacent gang tool ops. ( see 'using_GangTooling' ).
+
+    partLoadTime: The amount of time to change a part ( in seconds ).
 
     writeToolingInfo: Set this to 'true', the post will create a tool/op header at the top of the gcode, and at the top of each op.
 
