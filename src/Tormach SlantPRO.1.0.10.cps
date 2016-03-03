@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-02-03 16:01:20 +0200 (to, 02 mar 2016) $
+$Date: 2016-02-03 20:14:20 +0200 (to, 02 mar 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -71,13 +71,14 @@ Changes:
              Added; Loop state object to keep track of looping and not issue final M0 if in a loop.
              Removed : No M0s generated is a pure gang tool setup.
              Moved: 'writeG30' to the tools 'collection'.
+             Added: error is constant surface speed is detected in tormachMillLathing
 
 == OUTSTANDING ISSUES =======================================================================================
 2016-29-01 : Add Warning on retractinto X that is less than cutting min diam of boring bar
 2016-28-02 : Add special case for gang tool setup .. no M0s
 */
 
-var g_description = "Tormach 15LSlantPRO-1.1.16";
+var g_description = "Tormach 15LSlantPRO-1.1.17";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
@@ -509,6 +510,9 @@ function toolRecord ( section_Id, warnings ) {
     var isLastSection = section_Id === getNumberOfSections( ) - 1;
     var prevSection = section_Id > 0 ?  getSection( section_Id - 1 ) : undefined;
     
+    if ( tool.getSpindleMode( ) == SPINDLE_CONSTANT_SURFACE_SPEED && properties.tormachMillLathing )
+        warnings.pushWarning( " Tool: " + tool.number + " Constant Surface Speed not supported in mill lathing." );       
+ 
     this.sectionId = section_Id;
     this.sectionName = section.getParameter( "operation-comment" );
     
