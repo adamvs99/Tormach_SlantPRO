@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-28-02 15:05:20 +0200 (to, 28 feb 2016) $
+$Date: 2016-02-03 16:01:20 +0200 (to, 02 mar 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -67,6 +67,10 @@ Changes:
 2016-23-02 : Fixed: G4 - Pxxx outputs in milliseconds, not seconds.
 2016-28-02 : Removed: bounding '%' lines.
              Fixed: last G30 in gang tool mode no longer writes an M0.
+2016-02-03 : Added: property.partLoadTime. This adds to total cycle time. Total cycle time also put in terms of hours.
+             Added; Loop state object to keep track of looping and not issue final M0 if in a loop.
+             Removed : No M0s generated is a pure gang tool setup.
+             Moved: 'writeG30' to the tools 'collection'.
 
 == OUTSTANDING ISSUES =======================================================================================
 2016-29-01 : Add Warning on retractinto X that is less than cutting min diam of boring bar
@@ -113,9 +117,10 @@ properties = {
     forceX_first_onFirstMove: true, // forces the X value to be the first block on the initial move
     showNotes: false,               // specifies that operation notes should be output.
     debugOutput: false,             // prints debugging info in post
-    gangToolSafeMargin : 1,         // the extra margin for gang tool pull back
-    writeToolingInfo : true,           // prints out the tool info header
+    gangToolSafeMargin: 1,          // the extra margin for gang tool pull back
+    writeToolingInfo: true,         // prints out the tool info header
     warnings: true,                 // issues a warning is something is found out of kilter
+    partLoadTime: 65,               // time it takes to reload a part in the holding device ( in seconds )
 //  actionsFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\Actions",             // actions code file folder     
 //  passThroughFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\PassthroughCode"  // pass through code file folder    
     actionsFilePath : "/Users/adamvs/Autodesk/Fusion 360 CAM/Actions",             // actions code file folder     
@@ -364,7 +369,7 @@ var gDiamModal = createModal({}, gFormat); // modal group 10 // G07
 
 //fixed settings
 var ge = { BINDING : 0, TYPE : 1, NAME : 2, MODIFIER : 3 };
-var toolType = { XMINUS : -1, GANG : 0, XPLUS : 1 };
+var toolType = { NOTYPE : -99, XMINUS : -1, GANG : 0, XPLUS : 1 };
 var tool30Type = { NORMAL : 0, ZONLY : 1 };
 var pState = { OPENING : 0, IN_SECTIONS : 1, LAST_SECTION: 2, CLOSING: 3 };
 
@@ -473,6 +478,7 @@ function toolRecord ( section_Id, warnings ) {
     this.toolNum = 0;
     this.toolCuttingDir = undefined;
     this.toolType = undefined;
+    this.toolOnGangPlate = false;
     this.toolDiam = 0;
     this.feedMode = undefined;
     this.spindleMode = undefined;
@@ -516,9 +522,23 @@ function toolRecord ( section_Id, warnings ) {
     // #KLUDGE
     if ( isStockTranferOp( section ) )
         this.toolNum = this.c_barPullerToolNum;
-    if ( section.hasParameter( "operation:turningMode") && section.getParameter( "" ) === "inner" )
+    if ( section.hasParameter( "operation:turningMode") && section.getParameter( "operation:turningMode" ) === "inner" )
         this.turningMode = "inner";
     this.toolCuttingDir = tool.turret > 0 ? toolType.XPLUS : tool.manualToolChange ? toolType.XMINUS : toolType.GANG;
+    // #KLUDGE
+    if ( this.toolCuttingDir === toolType.GANG )
+        this.toolOnGangPlate = true;
+    else if ( tool.comment.length > 0 ) {
+        var comment_items = String( tool.comment ).split( ":" );
+        
+        for ( var n in comment_items )
+            if ( /gang/i.test( comment_items[ n ] ) ) {
+                this.toolOnGangPlate = true;
+                break;
+            }
+    }
+ 
+
     this.toolType = tool.getType( );
     this.toolDiam = tool.getDiameter( );
     this.feedMode = section.feedMode === FEED_PER_REVOLUTION ? 95 : 94;
@@ -534,12 +554,6 @@ function toolRecord ( section_Id, warnings ) {
     if ( prevSection !== undefined )
         this.toolIsNewTool = prevSection.getTool( ).number !== this.toolNum; 
     
-    if ( ! isLastSection && properties.using_GangTooling ) {
-        var nextSectionId = this.sectionId + 1;
-        var nextTool = getSection( nextSectionId ).getTool( );
-        if ( this.toolCuttingDir === toolType.GANG && nextTool.manualToolChange === false && nextTool.turret ===  0 && nextTool.toolnumber !== this.toolNum )
-            this.tool30Type = tool30Type.ZONLY;
-    }
     // check tool metrics - issue warnings
     switch ( this.toolType ) {
         case TOOL_TAP_RIGHT_HAND:
@@ -624,33 +638,12 @@ function toolRecord ( section_Id, warnings ) {
         else
             this.writeOpHeader( currentSection );
     };
-
-    this.writeG30 = function( tooling ) {
-        var isTool0 = tooling.isTool0( );
-        
-        if (  properties.using_GangTooling )  {
-            if ( this.tool30Type === tool30Type.ZONLY && !isTool0 ) {
-                writeln("");
-                writeComment("...pull back to safe Z...");
-                writeBlock( zOutput.format( tooling.recommendedGangZ( ) ) );
-            }
-            else {
-                writeln("");
-                writeBlock( gFormat.format(30) );
-                if ( ! this.isLastTool && ! tooling.isPureGangTooling( ) )
-                    writeBlock( mFormat.format(0) );
-            }
-        }
-        else {
-            writeln("");          
-            properties.tormachMillLathing ? writeBlock( gFormat.format(30) ) : writeBlock( gFormat.format(30), "Z #5422" );
-        }
-    };
     
     this.isGang = function( ) { return this.toolCuttingDir === toolType.GANG; };
     this.valid = function( ) { return this.toolNum !== 0 && this.sectionName !== "" && this.sectionName.length > 0; };
     this.matchName = function ( name ) { return this.sectionMatchName.search( name ) >= 0; };
     this.setLastTool = function( ) { this.isLastTool = true; };
+    this.set30Type = function( ) { this.tool30Type = tool30Type.ZONLY; };
 //  debugOut( " ToolInfo: sectionId: " + this.sectionId + " toolNum: " + this.toolNum );
 }
 
@@ -678,10 +671,12 @@ function toolingInfo( warnings ) {
     var numberOfSections = getNumberOfSections( );
     var numberOfTools = 0;
     var adjacentXPlusTooling = 0;
-    var lastToolType;
+    var lastToolType = toolType.NOTYPE;
     var lastGangToolLen = 0;
     var maxDeltaLengthOnGang = 0;
     var lastToolNum = -1;
+    var trLast = undefined;
+    
     for (var i = 0; i < numberOfSections; ++i ) {
         var tr = new toolRecord( i, warnings );
         var section = getSection( i );
@@ -691,19 +686,7 @@ function toolingInfo( warnings ) {
             
             // #HACK
             holderHeadLength = holderHeadLength > 5.5 ? holderHeadLength / 25.4 : holderHeadLength; // adjust for metric value
-            if ( tr.toolCuttingDir === toolType.XMINUS ) {
-                ++this.xMinusCount;
-                lastToolType = toolType.XMINUS;
-                this.maxQCTPToolZ = Math.max( this.maxQCTPToolZ, tr.toolLength !== 0 ? tr.toolLength : holderHeadLength );
-            }
-            else if ( tr.toolCuttingDir === toolType.XPLUS )  {
-                ++this.xPlusCount;
-                if ( lastToolType === toolType.XPLUS )
-                    ++adjacentXPlusTooling;
-                lastToolType = toolType.XPLUS;
-                this.maxTurretToolZ = Math.max( this.maxTurretToolZ, tr.toolLength !== 0 ? tr.toolLength : holderHeadLength );
-            }
-            else if ( tr.toolCuttingDir === toolType.GANG )  {
+            if ( tr.toolOnGangPlate )  {
                 // Toggle and lock the state of this.adjacentGangTooling
                 // if there are two adjacent gang ops using different tools
                 ++this.gangCount;
@@ -711,10 +694,27 @@ function toolingInfo( warnings ) {
                     ++this.adjacentGangToolingCount;
                     maxDeltaLengthOnGang = Math.max( maxDeltaLengthOnGang, Math.abs( lastGangToolLen - tr.toolLength ) );
                     this.maxGangToolSafeZ = Math.max( this.maxGangToolSafeZ, maxDeltaLengthOnGang );
+                    trLast.set30Type( );
                 }
                 lastToolType = toolType.GANG;
                 lastGangToolLen = tr.toolLength;
 
+            }
+            if ( tr.toolCuttingDir === toolType.XMINUS ) {
+                ++this.xMinusCount;
+                if ( tr.toolOnGangPlate === false )  {
+                    lastToolType = toolType.XMINUS;
+                    this.maxQCTPToolZ = Math.max( this.maxQCTPToolZ, tr.toolLength !== 0 ? tr.toolLength : holderHeadLength );
+                }
+            }
+            else if ( tr.toolCuttingDir === toolType.XPLUS )  {
+                ++this.xPlusCount;
+                if ( lastToolType === toolType.XPLUS )
+                    ++adjacentXPlusTooling;
+                if ( tr.toolOnGangPlate === false )  {
+                    lastToolType = toolType.XPLUS;
+                    this.maxTurretToolZ = Math.max( this.maxTurretToolZ, tr.toolLength !== 0 ? tr.toolLength : holderHeadLength );
+                }
             }
             lastToolNum = tr.toolNum;
             ++numberOfTools;
@@ -722,6 +722,7 @@ function toolingInfo( warnings ) {
         this.tooling.push( tr );
         if ( i === numberOfSections - 1 )
             tr.setLastTool( );
+        trLast = tr;
         
     }
     this.initalized = true;
@@ -736,7 +737,7 @@ function toolingInfo( warnings ) {
         this.promptString = "   **** PUT LATHE INTO TURRET MODE ***";
     else if ( this.xMinusCount > 0 && this.xPlusCount > 0 )
         this.promptString = "   **** PUT LATHE INTO TURRET MODE ***";
-//debugOut( " toolingInfo: xMinusCount: " + this.xMinusCount + " xPlusCount: " + this.xPlusCount + " gangCount: " +  this.gangCount );
+//  debugOut( " toolingInfo: xMinusCount: " + this.xMinusCount + " xPlusCount: " + this.xPlusCount + " gangCount: " +  this.gangCount );
     
     // attemp to calulate the total tool change time...
     var factor = unit === MM ? 25.4 : 1;
@@ -783,8 +784,33 @@ function toolingInfo( warnings ) {
         }
         return undefined;
     };
+    
+    this.writeG30 = function( loopStack ) {
+        var isTool0 = this.isTool0( );
+        var tr = this.getToolInfo( );
+        
+        if (  properties.using_GangTooling )  {
+            if ( tr.tool30Type === tool30Type.ZONLY && !isTool0 ) {
+                writeln("");
+                writeComment("...pull back to safe Z...");
+                writeBlock( zOutput.format( this.recommendedGangZ( ) ) );
+            }
+            else {
+                writeln("");
+                writeBlock( gFormat.format(30) );
+                if ( ! this.isPureGangToolMode && ! tr.isLastTool )
+                    writeBlock( mFormat.format(0) );
+                else if ( ! this.isPureGangToolMode && tr.isLastTool && loopStack.isOpen( ) )
+                    writeBlock( mFormat.format(0) );
+            }
+        }
+        else {
+            writeln("");          
+            properties.tormachMillLathing ? writeBlock( gFormat.format(30) ) : writeBlock( gFormat.format(30), "Z #5422" );
+        }
+    };
+
     this.getToolChangeTime = function( ) { return this.totalToolChangeTime; };
-    this.isPureGangTooling = function( ) { return this.isPureGangToolMode; };
     
 }
 //--------------------------------------------------------------------------------------------------------------
@@ -793,9 +819,9 @@ function retract( ) {
     this.retractState = false;
     this.isRetracted = function( ) { return this.retractState; };
     this.onMove = function( ) { this.retractState = false; };
-    this.doRetract = function( tooling ) {
+    this.doRetract = function( tooling, loopStack ) {
         if ( this.retractState === false )
-            tooling.getToolInfo( ).writeG30( tooling );
+            tooling.writeG30( loopStack );
         this.retractState = true;
     };
 }
@@ -894,7 +920,6 @@ function spindle( ) {
             // So currentSection.getMaximumSpindleSpeed() should propogate to the setup box or
             // "operation:tool_maximumSpindleSpeed"...
             var maximumSpindleSpeed = Math.min( toolSpindleSpeed, properties.maximumSpindleSpeed );
-            var mSpindleCmd = maximumSpindleSpeed > 0 ? mFormat.format( mSpindle ) : "";
 
     //      debugOut( ";*** currentSection.getMaximumSpindleSpeed: " + currentSection.getMaximumSpindleSpeed( ),
     //                  ";*** tool.maximumSpindleSpeed: " + tool.maximumSpindleSpeed, 
@@ -1028,6 +1053,22 @@ function warnings_( ) {
     };
 }
 
+//--------------------------------------------------------------------------------------------------------------
+// encapsulate loop counting .. 
+function loopStack_( ) {
+    this.loopCount = 0;
+    
+    this.parsePassThrough = function( passthroughStr ) {
+        if ( String( passthroughStr ).match( new RegExp( /o[0-9]+\srepeat/i ) ) )
+            ++this.loopCount;
+        else if ( String( passthroughStr ).match( new RegExp( /o[0-9]+\sendrepeat/i ) ) ) 
+            --this.loopCount;
+    };
+    
+    this.isOpen = function( ) { return this.loopCount > 0; } ;
+}
+
+
 // inial program info
 var g_fileGenerated;
 
@@ -1045,6 +1086,7 @@ var g_coolant;
 var g_spindle;
 var g_tooling;
 var g_warnings;
+var g_loopStack;
 var g_actions;
 
 //==================================================================================================
@@ -1246,6 +1288,7 @@ function onOpen( ) {
     g_spindle = new spindle( );
     g_actions = new actionsInfo( g_tooling, g_warnings );
     g_sequenceNumber = new lineNumber( );
+    g_loopStack = new loopStack_( );
     
     if ( !properties.separateWordsWithSpace )
         setWordSeparator( "" );
@@ -1385,13 +1428,15 @@ function writeToolInfo( ) {
         writeComment( g_tooling.getLatheModePrompt( ) );
         writeComment( );
     }
+    var totalPartTime = totalCT + g_tooling.getToolChangeTime( ) + properties.partLoadTime;
     
     writeComment("Tool / Op list ..............................................................................");
     for ( var i in result )
         writeComment( result[ i ] );
     writeComment( );
     writeComment( "Approximate tool change time:  ................  :  " + formatCycleTime( g_tooling.getToolChangeTime( ) ) );
-    writeComment( "total cycle time ( with approx tool change time ):  " + formatCycleTime( totalCT + g_tooling.getToolChangeTime( ) ) );
+    writeComment( "Approximate part load time:  ..................  :  " + formatCycleTime( properties.partLoadTime ) );
+    writeComment( "total cycle time ( with approx tool change time ):  " + formatCycleTime( totalPartTime )  + "   (" + secFormat.format( totalPartTime / 3600 ) + " hrs. )" );
     writeComment( );
 }
 
@@ -1812,7 +1857,7 @@ function onCommand(command) {
 function writeParkTool( ) {        
     onCommand( COMMAND_COOLANT_OFF );
     onCommand( COMMAND_STOP_SPINDLE );
-    g_retract.doRetract( g_tooling );
+    g_retract.doRetract( g_tooling, g_loopStack );
 }
 
 function onSectionEnd( ) {
@@ -1889,6 +1934,7 @@ function onPassThrough( text ) {
         for ( var i in lines )  {
             var lineText = lines[ i ];
             
+            g_loopStack.parsePassThrough( lineText );
             if ( g_pState.pStateIsPreSection( ) )
                 g_passThroughBuffer.add( lineText );
             else {
