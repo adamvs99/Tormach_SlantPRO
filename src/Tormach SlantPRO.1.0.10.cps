@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-02-03 20:14:20 +0200 (to, 02 mar 2016) $
+$Date: 2016-04-03 10:46:20 +0200 (to, 04 mar 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -71,14 +71,16 @@ Changes:
              Added; Loop state object to keep track of looping and not issue final M0 if in a loop.
              Removed : No M0s generated is a pure gang tool setup.
              Moved: 'writeG30' to the tools 'collection'.
-             Added: error is constant surface speed is detected in tormachMillLathing
+             Added: warning is constant surface speed is detected in tormachMillLathing
+2016-04-03 : Changed: Threading to: 1) evaluate on 'lasty' cycle point not first to get more correct final z
+            2) support back to front thrading  
 
 == OUTSTANDING ISSUES =======================================================================================
 2016-29-01 : Add Warning on retractinto X that is less than cutting min diam of boring bar
 2016-28-02 : Add special case for gang tool setup .. no M0s
 */
 
-var g_description = "Tormach 15LSlantPRO-1.1.17";
+var g_description = "Tormach 15LSlantPRO-1.1.18";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
@@ -1718,15 +1720,20 @@ function onCyclePoint(x, y, z) {
         return;
     switch ( cycleType ) {
         case "thread-turning":
-            if ( ! isFirstCyclePoint( ) ) 
+            if ( ! isLastCyclePoint( ) ) 
                 return;
             
             g_retract.onMove( );
-            var pos = currentSection.getFirstPosition( );
+            var backFromFront = hasParameter( "operation:applyStockOffsetBackFromFront" ) && getParameter( "operation:applyStockOffsetBackFromFront" ) === 1;
+            var pos = backFromFront ? currentSection.getFinalPosition( ) : currentSection.getInitialPosition( );
+            var g76_z = backFromFront ? pos.z : z;
+debugOut( true, "onCyclePoint: backFromFront = " + backFromFront + " z Value: " + z + " pos.z: " + pos.z );            
             if ( pos ) {
                 writeBlock( writeX( pos.x ) );
-                writeBlock( zOutput.format( pos.z ) );
+                backFromFront ? writeBlock( zOutput.format( z ) ) : writeBlock( zOutput.format( pos.z ) );
             }
+            if ( backFromFront )
+                z = currentSection.getInitialPosition( ).z;
 
             var external = false;
             var inverted = getSection( getCurrentSectionId( ) ).getTool( ).turret > 0;
@@ -1775,8 +1782,8 @@ function onCyclePoint(x, y, z) {
 //          debugOut( "p= " + p, "driveline= " + driveLine, "threadCrest= " + threadCrest, "threadDepth= " + threadDepth );            
 
             writeBlock( gMotionModal.format(76),
-                        pOutput.format(p),
-                        zOutput.format(z),
+                        pOutput.format( p ),
+                        zOutput.format( g76_z ),
                         iThreadOutput.format( inverted ? -iVal : iVal ),
                         jThreadOutput.format( jVal ),
                         kThreadOutput.format( threadDepth ),
