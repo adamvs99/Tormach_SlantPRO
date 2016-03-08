@@ -2,9 +2,12 @@ OUTFILE=diffout.txt
 OUTFILEGOLD=diffout\ -\ gold.txt
 GOLDDIR=../Gold\ Files/
 GOLDNC=\ -\ gold.nc
-declare -a sarr=("test Part 1" "Internal test part" "loopTest" "warnings Test" "PureGangToolingTest" "mill Turning Test" "millLathingError")
+declare -a sarr
+shopt -s nullglob
+sarr=(*.nc)
 
 echo "" > $OUTFILE
+
 
 for n in "${sarr[@]}"
 do
@@ -46,60 +49,10 @@ else
             printf $blue "upload to gold" "$n".nc
             cp -f "$n".nc "$GOLDDIR""$n""$GOLDNC"
         done
+        printf $blue "upload to gold" $OUTFILE
+        cp -f $OUTFILE "$GOLDDIR""$OUTFILEGOLD"
     else
         printf $blue "upload cancelled"
     fi
 fi
 rm -f tmp
-
-# for n in "${sarr[@]}"
-# do
-#     cat "$n".nc | head + 10 > tmp.c
-#     cat "$GOLDDIR""$n""$GOLDNC" | head + 10 > tmp1.c
-#     echo "diffing .. ""$n".nc "$GOLDDIR""$n""$GOLDNC" >> $OUTFILE
-#     echo "" >> $OUTFILE
-#     diff "$n".nc "$GOLDDIR""$n""$GOLDNC" >> $OUTFILE
-# done
-
-# INFILE=test\ Part\ 1
-# echo "diffing .. "$INFILE >> $OUTFILE
-# echo "" >> $OUTFILE
-# diff "$INFILE.nc" "$GOLDDIR$INFILE$GOLDNC" >> $OUTFILE
-# 
-# INFILE=Internal\ test\ part
-# echo "" >> $OUTFILE
-# echo "diffing .. Internal test part" >> $OUTFILE
-# echo "" >> $OUTFILE
-# diff "$INFILE.nc" "$GOLDDIR$INFILE$GOLDNC" >> $OUTFILE
-# 
-# INFILE=loopTest
-# echo "" >> $OUTFILE
-# echo "diffing .. loopTest" >> $OUTFILE
-# echo "" >> $OUTFILE
-# diff "$INFILE.nc" "$GOLDDIR$INFILE$GOLDNC" >> $OUTFILE
-# 
-# INFILE=warnings\ Test
-# echo "" >> $OUTFILE
-# echo "diffing .. warnings Test" >> $OUTFILE
-# echo "" >> $OUTFILE
-# diff "$INFILE.nc" "$GOLDDIR$INFILE$GOLDNC" >> $OUTFILE
-# 
-# INFILE=PureGangToolingTest
-# echo "" >> $OUTFILE
-# echo "diffing .. PureGangToolingTest" >> $OUTFILE
-# echo "" >> $OUTFILEdiff PureGangToolingTest.nc ../Gold\ Files/PureGangToolingTest\ -\ gold.nc >> $OUTFILE
-# diff "$INFILE.nc" "$GOLDDIR$INFILE$GOLDNC" >> $OUTFILE
-# 
-# INFILE=mill\ Turning\ Test
-# echo "" >> $OUTFILE
-# echo "diffing .. mill Turning Test" >> $OUTFILE
-# echo "" >> $OUTFILE
-# diff "$INFILE.nc" "$GOLDDIR$INFILE$GOLDNC" >> $OUTFILE
-# 
-# INFILE=millLathingError
-# echo "" >> $OUTFILE
-# echo "diffing .. millLathingError" >> $OUTFILE
-# echo "" >> $OUTFILE
-# diff "$INFILE.nc" "$GOLDDIR$INFILE$GOLDNC" >> $OUTFILE
-
-
