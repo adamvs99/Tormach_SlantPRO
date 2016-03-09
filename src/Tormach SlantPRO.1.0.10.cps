@@ -3,10 +3,10 @@ Copyright (C) 2012-2013 by Autodesk, Inc.
 All rights reserved.
 
 Tormach 15LSlantPRO Lathe post processor configuration.
-Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015 Adam Silver
-Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014 Tormach, Inc.
+Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015-2016 Adam Silver
+Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014-2016 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-04-03 13:17:20 +0200 (to, 04 mar 2016) $
+$Date: 2016-09-03 11:05:50 +0200 (to, 09 mar 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -68,19 +68,19 @@ Changes:
 2016-28-02 : Removed: bounding '%' lines.
              Fixed: last G30 in gang tool mode no longer writes an M0.
 2016-02-03 : Added: property.partLoadTime. This adds to total cycle time. Total cycle time also put in terms of hours.
-             Added; Loop state object to keep track of looping and not issue final M0 if in a loop.
+             Added: Loop state object to keep track of looping and not issue final M0 if in a loop.
              Removed : No M0s generated is a pure gang tool setup.
              Moved: 'writeG30' to the tools 'collection'.
              Added: warning is constant surface speed is detected in tormachMillLathing
 2016-04-03 : Changed: Threading to: 1) evaluate on 'last' cycle point not first to get more correct final z
-             2) support back to front threading  
+             2) support back to front threading 
+2016-08-03 : Suppressed: OnRapid during threading - generates extra Z moves.
 
 == OUTSTANDING ISSUES =======================================================================================
-2016-29-01 : Add Warning on retractinto X that is less than cutting min diam of boring bar
-2016-28-02 : Add special case for gang tool setup .. no M0s
-*/
 
-var g_description = "Tormach 15LSlantPRO-1.1.18";
+ */
+
+var g_description = "Tormach 15LSlantPRO-1.1.19";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
@@ -1074,6 +1074,43 @@ function loopStack_( ) {
     this.isOpen = function( ) { return this.loopCount > 0; } ;
 }
 
+//--------------------------------------------------------------------------------------------------------------
+// encapsulate loop counting .. 
+function rapidMoveControl( ) {
+    this.removeUntil = false;
+    this.removeLast = false;
+    this.removeAll = false;
+    this.isCyclePoint = false;
+    this.hitCount = 0;
+    
+    this.onSection = function( actions ) {
+        this.isCyclePoint =  currentSection.hasParameter( "operation:strategy" ) && currentSection.getParameter( "operation:strategy" ) === "turningThread";
+        if ( this.isCyclePoint )
+            this.removeUntil = true;
+        if ( actions.actionIsSuppress( ) )
+            this.removeAll = true;
+    };
+    
+    this.rapidSuppress  = function( ) {
+        ++this.hitCount;
+        if ( this.removeUntil === true || this.removeAll === true )
+            return true;
+        return false;
+    };
+    
+    this.resetUntil = function( ) {
+        this.removeUntil = false;
+    };
+    
+    this.reset = function( ) {
+        this.removeUntil = false;
+        this.removeLast = false;
+        this.removeAll = false;
+        this.isCyclePoint = false;
+        this.hitCount = 0;
+    };
+}
+
 
 // inial program info
 var g_fileGenerated;
@@ -1085,6 +1122,7 @@ var g_currentWorkOffset;
 var g_optionalState;
 var g_pendingRadiusComp;
 var g_passThroughBuffer;
+var g_rapidMoveControl;
 var g_fTyp; // state variable to control G93-G95
 var g_pState;
 var g_retract;
@@ -1295,6 +1333,7 @@ function onOpen( ) {
     g_actions = new actionsInfo( g_tooling, g_warnings );
     g_sequenceNumber = new lineNumber( );
     g_loopStack = new loopStack_( );
+    g_rapidMoveControl = new rapidMoveControl( );
     
     if ( !properties.separateWordsWithSpace )
         setWordSeparator( "" );
@@ -1316,7 +1355,8 @@ function forceXZ() {
 /** Force output of X, Z, and F on next output. */
 function forceAny() {
     forceXZ();
-    feedOutput.reset();
+    feedOutput.reset( );
+    g_rapidMoveControl.reset( );
 }
 
 function getSpindle() {
@@ -1530,6 +1570,7 @@ function onSection( ) {
     forceAny( );
     gMotionModal.reset( );
     gFeedModeModal.reset( );
+    g_rapidMoveControl.onSection( g_actions );
     g_fTyp.setFTyp( currentSection );
 
     g_spindle.writeSpindleCmd( currentSection );
@@ -1589,13 +1630,13 @@ function onDwell( seconds ) {
 function onRadiusCompensation( ) {  g_pendingRadiusComp.setPendingRadiusComp( radiusCompensation ); }
 
 function onRapid(_x, _y, _z) {
-    if ( g_actions.actionIsSuppress( ) )
+    if ( g_rapidMoveControl.rapidSuppress( ) )
         return;
     var x = writeX(_x);
     var z = zOutput.format(_z);
     var m = g_coolant.coolantOnZ( z );
         
-    if (x || z) {
+    if ( x || z ) {
         if ( g_pendingRadiusComp.isPending( ) ) {
             g_pendingRadiusComp.reset( );
             switch ( radiusCompensation ) {
@@ -1724,10 +1765,12 @@ function onCyclePoint(x, y, z) {
                 return;
             
             g_retract.onMove( );
+            g_rapidMoveControl.resetUntil( );
             var backFromFront = hasParameter( "operation:applyStockOffsetBackFromFront" ) && getParameter( "operation:applyStockOffsetBackFromFront" ) === 1;
             var pos = backFromFront ? currentSection.getFinalPosition( ) : currentSection.getInitialPosition( );
             var g76_z = backFromFront ? pos.z : z;
-debugOut( true, "onCyclePoint: backFromFront = " + backFromFront + " z Value: " + z + " pos.z: " + pos.z );            
+debugOut( "onCyclePoint: backFromFront = " + backFromFront + " z Value: " + z + " pos.z: " + pos.z );            
+debugOut( "onCyclePoint: currentSection.getFinalPosition = " + currentSection.getFinalPosition( ) + " currentSection.getInitialPosition: " + currentSection.getInitialPosition( ));            
             if ( pos ) {
                 writeBlock( writeX( pos.x ) );
                 backFromFront ? writeBlock( zOutput.format( z ) ) : writeBlock( zOutput.format( pos.z ) );
