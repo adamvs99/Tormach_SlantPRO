@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015-2016 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014-2016 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-09-03 11:05:50 +0200 (to, 09 mar 2016) $
+$Date: 2016-17-03 18:56:45 +0200 (to, 17 mar 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -75,12 +75,13 @@ Changes:
 2016-04-03 : Changed: Threading to: 1) evaluate on 'last' cycle point not first to get more correct final z
              2) support back to front threading 
 2016-08-03 : Suppressed: OnRapid during threading - generates extra Z moves.
+2016-17-03 : Fixed: to report correct gcode generation time.
 
 == OUTSTANDING ISSUES =======================================================================================
 
  */
 
-var g_description = "Tormach 15LSlantPRO-1.1.19";
+var g_description = "Tormach 15LSlantPRO-1.1.20";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
@@ -1311,7 +1312,7 @@ function onParameter( ) {
     else if (typeof( arguments[ 0 ] ) === 'string' && arguments[ 0 ] === "generated-by" )
         writeComment( "            CAM: " + arguments[ 1 ] );
     else if (typeof( arguments[ 0 ] ) === 'string' && arguments[ 0 ] === "generated-at" )
-        g_fileGenerated = " ***LOCKED***  : " + arguments[ 1 ];
+        g_fileGenerated = " ***LOCKED***  : " + new Date( ).toString( );
     // come before first section...
     else if (typeof( arguments[ 0 ] ) === 'string' && arguments[ 0 ] === "action" )
         g_actions.stowAction( arguments[ 1 ] );
