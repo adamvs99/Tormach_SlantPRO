@@ -1,7 +1,4 @@
-Tormach SlantPRO_1.0.16.cps
-
-Change log since last time:
-2016-18-01 : fixed bug on writing G30 before first tool call
+Tormach SlantPRO_1.0.18.cps
 
 General instruction:
 
@@ -82,6 +79,40 @@ PassThrough: 'PassThroughs' are created the same way as actions. You can specify
 
     G30
     M0
+
+Threading: This is not obvious from the threading setup sheets, here is a guide:
+    ‘Tool’ tab:
+        1) pick a threading tool. 
+        2) set spindle speed for about 350 - 800.
+        3) Constant Surface Speed: OFF
+        4) Use feed per revolution: ON
+
+    ‘Geometry' tab:
+        1) pick the thread face
+        2) Frontside ( or backside, if threading from back to front ) offset give a little distance so the tool can sync and get a little run into the part. I usually do about .25 for this.
+
+    ‘Radii’ tab ( external thread )
+        1) set 'Outside' diameter to the theoretical OD for the thread, not the actual diameter which is usually under cut a little bit. Eg: for 1/2-20 thread this would be .5”.
+        2) set the ‘Clearance’ to ‘Outside diameter’ + .05. This is the ‘drive line’ in the G76 threading description. The .05 offset is arbitrary, could be more, probably should not be much less.
+
+    ‘Radii’ tab ( internal thread )
+        1) set 'Inside' diameter to the theoretical ID for the thread, not the actual diameter which is usually over cut a little bit. Eg: for 1/2-20 thread this would be .5”.
+        2) set the ‘Clearance’ to ‘Inside diameter’ - .05. This is the ‘drive line’ in the G76 threading description. The .05 offset is arbitrary, could be more or less depending on the size of the thread.
+
+    ‘Passes’ tab
+        1) Thread depth: I use around 70% - 75% of the pitch. This would be from the theoretical OD, or ID described above. So a 1/2-20 thread would be 1/20*.72 = .0360. 
+        2) Thread pitch: 1/TPI. A 20 tpi thread is 1/20 = 0.05
+        3) Infeed mode: set to ‘reduced infeed’.
+        4) Infeed angle: 30
+        5) Use cycle: ON ( ie, checked! )
+        6) Spring Pass: I usually check this
+        7) Number of step downs: 8-24, depending.
+    
+     Adjustments:
+        If the thread needs to be adjusted you can:
+            1) go back into CAM and play with the thread depth. This is the most 'solid' way to do this because it will change the J and K parameters correctly in the G76 code block.
+            2) What I do sometimes if a little tweek is needed, is go back into the gcode and change the initial X position ( the drive line ) of the threading op. This has the effect of offsetting *everything*, preserving the relationship between the J and K parameters and your X tool offset in your tool table on the Lathe itself.
+
 
 Stock Transfer: You can implement this the same way as an 'action' described above. There is currently no tool tab on the Stock Transfer setup, so this post forces it to tool #26. If you use this for a bar puller, of a simple stop, it will always call tool 26.
 
