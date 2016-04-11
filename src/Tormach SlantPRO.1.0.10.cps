@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015-2016 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014-2016 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-17-03 18:56:45 +0200 (to, 17 mar 2016) $
+$Date: 2016-19-03 09:57:25 -0700 (to, 19 mar 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -76,12 +76,16 @@ Changes:
              2) support back to front threading 
 2016-08-03 : Suppressed: OnRapid during threading - generates extra Z moves.
 2016-17-03 : Fixed: to report correct gcode generation time.
+2016-19-03 : Changed: tool info / comment order more along lines with tool setup in Fusion360.
+             Added: 'Insert' line in tool header at the tool change.
+2016-10-04 : Fixed: if double section, eg, a hole and chamfer were selected for tapping an extra 'K' param
+             was generated. Tapping, like threading emits gcode on 'last' cycle of 'onCyclePoint'.
 
 == OUTSTANDING ISSUES =======================================================================================
 
  */
 
-var g_description = "Tormach 15LSlantPRO-1.1.20";
+var g_description = "Tormach 15LSlantPRO-1.1.22";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
@@ -554,8 +558,9 @@ function toolRecord ( section_Id, warnings ) {
     this.rpm = tool.spindleRPM;
     
     var toolDescript = this.toolNum === this.c_barPullerToolNum ? " Stock Transfer" : " " + tool.vendor + " " + tool.description ;
-    this.toolingComment = "-- tool: " + this.toolNum + toolDescript;
-    this.toolLine = this.toolNum + " " + tool.vendor + " " + tool.description + " " + tool.comment;
+    this.toolLine = this.toolNum + " - " + tool.comment;
+    this.toolingComment = "-- tool: " + this.toolNum + "  " + tool.comment + toolDescript;
+    this.toolInsert = tool.vendor + " " + tool.description;
     this.compOffset = tool.isTurningTool( ) ? tool.compensationOffset : tool.lengthOffset;
     this.toolLength = tool.bodyLength;
     if ( prevSection !== undefined )
@@ -599,16 +604,17 @@ function toolRecord ( section_Id, warnings ) {
 
     this.writeToolHeader = function( section ) {
         if ( properties.writeToolingInfo )  {
-            writeComment("==============================================================");
-            writeComment( "Tool: " + this.toolLine );
-            writeComment( "Time: " + formatCycleTime( _getToolCT( getCurrentSectionId( ) ) ) );
-            writeComment( "   Z: " + zFormat.format( _getToolZ( getCurrentSectionId( ) ) ) );
+            writeComment( "==============================================================" );
+            writeComment( "  Tool: " + this.toolLine );
+            writeComment( "Insert: " + this.toolInsert );
+            writeComment( "  Time: " + formatCycleTime( _getToolCT( getCurrentSectionId( ) ) ) );
+            writeComment( "     Z: " + zFormat.format( _getToolZ( getCurrentSectionId( ) ) ) );
         }
         else
-            writeComment( "Tool: " + this.toolLine );
+            writeComment( "  Tool: " + this.toolLine );
             
         if ( section.hasParameter( "operation-comment" ) )
-            writeComment( "  Op: " + section.getParameter( "operation-comment" ) );
+            writeComment( "    Op: " + section.getParameter( "operation-comment" ) );
     };
     
     this.writeOpHeader = function( section ) {
@@ -617,13 +623,13 @@ function toolRecord ( section_Id, warnings ) {
         if ( properties.writeToolingInfo )  {
             writeComment("..   ..   ..   ..   ..   ..   ..   ..   ..   ..   ..   ..   ..");
             if ( comment !== undefined )  {
-                writeComment( "  Op: " + comment);
-                writeComment( "Time: " + formatCycleTime( currentSection.getCycleTime( ) ) );
-                writeComment( "   Z: " + zFormat.format( currentSection.getGlobalZRange( ).getMinimum( ) ) );
+                writeComment( "    Op: " + comment);
+                writeComment( "  Time: " + formatCycleTime( currentSection.getCycleTime( ) ) );
+                writeComment( "     Z: " + zFormat.format( currentSection.getGlobalZRange( ).getMinimum( ) ) );
             } 
         }
         else if ( comment !== undefined )
-            writeComment( "  Op: " + comment);
+            writeComment( "    Op: " + comment);
     };
 
     this.writeToolCallCmd = function( section ) {
@@ -1844,11 +1850,15 @@ debugOut( "onCyclePoint: currentSection.getFinalPosition = " + currentSection.ge
             expandCyclePoint(x, y, z);
             return;
         case "tapping":
+            if ( ! isLastCyclePoint( ) ) 
+                return;
+            
             var threadsPerInch = getParameter("operation:tool_threadPitch"); // per mm for metric
+            
+            g_retract.onMove( );
             writeBlock( gMotionModal.format(33.1),
                         zOutput.format(z),
                         kTapOutput.format( threadsPerInch ) );
-            g_retract.onMove( );
             return;
     }
 }
