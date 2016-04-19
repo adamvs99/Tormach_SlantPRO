@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015-2016 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014-2016 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-19-03 09:57:25 -0700 (to, 19 mar 2016) $
+$Date: 2016-19-03 17:49:25 -0700 (to, 18 apr 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -80,15 +80,17 @@ Changes:
              Added: 'Insert' line in tool header at the tool change.
 2016-10-04 : Fixed: if double section, eg, a hole and chamfer were selected for tapping an extra 'K' param
              was generated. Tapping, like threading emits gcode on 'last' cycle of 'onCyclePoint'.
+2016-18-04 : Added: property: partingOpFeedFix to control lead out feed rate from parting.
+             Fixed: G30 generation for pure turret + gang setups
 
 == OUTSTANDING ISSUES =======================================================================================
 
  */
 
-var g_description = "Tormach 15LSlantPRO-1.1.22";
+var g_description = "Tormach 15LSlantPRO-1.1.23";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
-legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Adam Silver ; Algorythm for calculating initial thread depth: (C) 2015 Tormach, Inc.";
+legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Tormach, Inc., (C) 2015-2016 Adam Silver";
 certificationLevel = 2;
 minimumRevision = 24000;
 
@@ -129,6 +131,7 @@ properties = {
     writeToolingInfo: true,         // prints out the tool info header
     warnings: true,                 // issues a warning is something is found out of kilter
     partLoadTime: 65,               // time it takes to reload a part in the holding device ( in seconds )
+    partingOpFeedFix: false,        // set true to adjust feeds in parting operations.s
 //  actionsFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\Actions",             // actions code file folder     
 //  passThroughFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\PassthroughCode"  // pass through code file folder    
     actionsFilePath : "/Users/adamvs/Autodesk/Fusion 360 CAM/Actions",             // actions code file folder     
@@ -378,7 +381,7 @@ var gDiamModal = createModal({}, gFormat); // modal group 10 // G07
 //fixed settings
 var ge = { BINDING : 0, TYPE : 1, NAME : 2, MODIFIER : 3 };
 var toolType = { NOTYPE : -99, XMINUS : -1, GANG : 0, XPLUS : 1 };
-var tool30Type = { NORMAL : 0, ZONLY : 1 };
+var tool30Type = { NORMAL : 0, ZONLY : 1, TURRET : 2, QCTP : 3 };
 var pState = { OPENING : 0, IN_SECTIONS : 1, LAST_SECTION: 2, CLOSING: 3 };
 
 //--------------------------------------------------------------------------------------------------------------
@@ -656,7 +659,7 @@ function toolRecord ( section_Id, warnings ) {
     this.valid = function( ) { return this.toolNum !== 0 && this.sectionName !== "" && this.sectionName.length > 0; };
     this.matchName = function ( name ) { return this.sectionMatchName.search( name ) >= 0; };
     this.setLastTool = function( ) { this.isLastTool = true; };
-    this.set30Type = function( ) { this.tool30Type = tool30Type.ZONLY; };
+    this.set30Type = function( typ ) { this.tool30Type = typ; };
 //  debugOut( " ToolInfo: sectionId: " + this.sectionId + " toolNum: " + this.toolNum );
 }
 
@@ -707,7 +710,7 @@ function toolingInfo( warnings ) {
                     ++this.adjacentGangToolingCount;
                     maxDeltaLengthOnGang = Math.max( maxDeltaLengthOnGang, Math.abs( lastGangToolLen - tr.toolLength ) );
                     this.maxGangToolSafeZ = Math.max( this.maxGangToolSafeZ, maxDeltaLengthOnGang );
-                    trLast.set30Type( );
+                    trLast.set30Type( tool30Type.ZONLY );
                 }
                 lastToolType = toolType.GANG;
                 lastGangToolLen = tr.toolLength;
@@ -715,6 +718,8 @@ function toolingInfo( warnings ) {
             }
             if ( tr.toolCuttingDir === toolType.XMINUS ) {
                 ++this.xMinusCount;
+                if ( lastToolType === toolType.XMINUS )
+                    trLast.set30Type( tool30Type.QCTP );
                 if ( tr.toolOnGangPlate === false )  {
                     lastToolType = toolType.XMINUS;
                     this.maxQCTPToolZ = Math.max( this.maxQCTPToolZ, tr.toolLength !== 0 ? tr.toolLength : holderHeadLength );
@@ -722,8 +727,10 @@ function toolingInfo( warnings ) {
             }
             else if ( tr.toolCuttingDir === toolType.XPLUS )  {
                 ++this.xPlusCount;
-                if ( lastToolType === toolType.XPLUS )
+                if ( lastToolType === toolType.XPLUS ) {
                     ++adjacentXPlusTooling;
+                    trLast.set30Type( tool30Type.TURRET )
+                }
                 if ( tr.toolOnGangPlate === false )  {
                     lastToolType = toolType.XPLUS;
                     this.maxTurretToolZ = Math.max( this.maxTurretToolZ, tr.toolLength !== 0 ? tr.toolLength : holderHeadLength );
@@ -750,7 +757,7 @@ function toolingInfo( warnings ) {
         this.promptString = "   **** PUT LATHE INTO TURRET MODE ***";
     else if ( this.xMinusCount > 0 && this.xPlusCount > 0 )
         this.promptString = "   **** PUT LATHE INTO TURRET MODE ***";
-//  debugOut( " toolingInfo: xMinusCount: " + this.xMinusCount + " xPlusCount: " + this.xPlusCount + " gangCount: " +  this.gangCount );
+// debugOut( " toolingInfo: xMinusCount: " + this.xMinusCount + " xPlusCount: " + this.xPlusCount + " gangCount: " +  this.gangCount + " adjacent Gang Count: " + this.adjacentGangToolingCount   );
     
     // attemp to calulate the total tool change time...
     var factor = unit === MM ? 25.4 : 1;
@@ -802,11 +809,15 @@ function toolingInfo( warnings ) {
         var isTool0 = this.isTool0( );
         var tr = this.getToolInfo( );
         
-        if (  properties.using_GangTooling )  {
+        if (  properties.using_GangTooling && this.adjacentGangToolingCount > 0 )  {
             if ( tr.tool30Type === tool30Type.ZONLY && !isTool0 ) {
                 writeln("");
                 writeComment("...pull back to safe Z...");
                 writeBlock( zOutput.format( this.recommendedGangZ( ) ) );
+            } 
+            else if ( tr.tool30Type !== tool30Type.ZONLY && this.xMinusCount == 0 ) {
+                writeln("");
+                writeBlock( gFormat.format(30), "Z #5422" );
             }
             else {
                 writeln("");
@@ -1118,6 +1129,69 @@ function rapidMoveControl( ) {
     };
 }
 
+//--------------------------------------------------------------------------------------------------------------
+// Special shim to manage feeds in parting...
+
+function partingSpeedMgr( )  {
+    this.ignore = true;
+    this.lastX = undefined;
+    this.minX = undefined;
+    this.feedRate = 0;
+    this.leadInFeed = 0;
+    this.retractFeed = 0;
+    
+    this.reset = function( ) {
+        this.ignore = true;
+        this.lastX = undefined;
+        this.minX = undefined;
+        this.feedRate = 0;
+        this.leadInFeed = 0;        
+        this.retractFeed = 0;
+    };
+    this.setFeeds = function( section ) {
+    
+        if ( ! ( section.hasParameter( "operation:strategy" ) && 
+                 section.getParameter( "operation:strategy" ) === "turningPart" ) )
+            return;
+        // these parameters are coming through as metric .. dmp uses 'arguments' which are comverted..
+        if ( section.hasParameter( "movement:lead_in" ) )
+            this.leadInFeed = section.getParameter( "movement:lead_in" ) / 25.4;
+        if ( section.hasParameter( "movement:lead_out" ) )
+            this.retractFeed = section.getParameter( "movement:lead_out" ) / 25.4;
+        if ( section.hasParameter( "movement:cutting" ) )
+            this.feedRate = section.getParameter( "movement:cutting" ) / 25.4;
+         
+        this.lastX = Math.abs( section.getInitialPosition( ).x );
+        this.minX = this.lastX;
+        this.ignore = false;
+        debugOut( " partingSpeedMgr: setFeeds: leadInFeed" + this.leadInFeed + " leadOutFeed: " + this.retractFeed + " feed: " + this.feedRate + " minX: " + this.minX );
+    };
+    
+    this.manageFeed = function( x, f ) {
+        debugOut( " partingSpeedMgr: manageFeed: f: " + f + " x: " + x );
+        if ( this.ignore || ! properties.partingOpFeedFix )
+            return feedOutput.format( f );
+        if ( f && f !== Math.Nan )
+            retval =  feedOutput.format( f );
+        if ( ! retval || ! retval.length ) {
+            x = Math.abs( x );
+            debugOut( " partingSpeedMgr: manageFeed: x: " + x + " minX: " + this.minX );
+            if ( x < this.minX ) {
+                this.minX = x;
+                retval = feedOutput.format( this.feedRate );
+            }
+            if ( x > this.lastX )
+                retval = feedOutput.format( this.retractFeed );          
+            if ( x < this.lastX && x > this.minX )
+                retval = feedOutput.format( this.leadInFeed );
+        }
+        this.lastX = x;
+        return retval;
+    };
+}
+//--------------------------------------------------------------------------------------------------------------
+// Code begin...
+
 
 // inial program info
 var g_fileGenerated;
@@ -1131,6 +1205,7 @@ var g_pendingRadiusComp;
 var g_passThroughBuffer;
 var g_rapidMoveControl;
 var g_fTyp; // state variable to control G93-G95
+var g_partingSpeedMgr;
 var g_pState;
 var g_retract;
 var g_coolant;
@@ -1341,6 +1416,7 @@ function onOpen( ) {
     g_sequenceNumber = new lineNumber( );
     g_loopStack = new loopStack_( );
     g_rapidMoveControl = new rapidMoveControl( );
+    g_partingSpeedMgr = new partingSpeedMgr( );
     
     if ( !properties.separateWordsWithSpace )
         setWordSeparator( "" );
@@ -1549,6 +1625,8 @@ function onSection( ) {
         g_pState.setLastSection( );
     if ( abortOnSectionTypeError( ) )
         return;
+    // special shim for parting ..
+    g_partingSpeedMgr.setFeeds( currentSection );
 
     var forceToolAndRetract = g_optionalState.transitionToCurState( );
     var toolInf = g_tooling.getToolInfo( );
@@ -1670,12 +1748,12 @@ function onFirstFeed( _reset ) {
     return "";
 }
 
-function onLinear(_x, _y, _z, feed) {
+function onLinear( _x, _y, _z, feed ) {
     if ( g_actions.actionIsSuppress( ) )
         return;
     var x = writeX(_x);
     var z = zOutput.format(_z);
-    var f = feedOutput.format( feed );
+    var f = g_partingSpeedMgr.manageFeed( _x, feed );
     var g = onFirstFeed( !( x || z ) && f && getNextRecord( ).isMotion( ) );
 
     if (x || z) {
@@ -1937,6 +2015,7 @@ function onSectionEnd( ) {
     if ( parkTool )
         writeParkTool( );
     forceAny( );
+    g_partingSpeedMgr.reset( );
 }
 
 function onClose() {
