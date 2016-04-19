@@ -48,6 +48,8 @@ Properties:
     
     passThroughFilePath: This specifies a local drive path to a folder which contains files used in 'PassThrough's, *should* be a different folder than 'actions' above. Same path description rules apply as 'actionFilePath'.
 
+    partingOpFeedFix: This activates a software 'shim' to trap linear movement on parting ops. This will force the lead-out feed to be used when the tool is retracting on either pecking or end of operation.
+
 
 
 Actions:
