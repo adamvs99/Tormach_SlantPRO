@@ -1,4 +1,4 @@
-Tormach SlantPRO_1.0.18.cps
+Tormach SlantPRO_1.0.25.cps
 
 General instruction:
 
@@ -27,6 +27,8 @@ Properties:
     maximumSpindleSpeed: Specifies the maximum clamp speed for ALL ops. This will override any 'faster' value brought in from CAM.
 
     using_GangTooling: Hints that gang tooling is being used. If two separate gang tools have adjacent ops, setting this 'true' will make the carriage move to a safe Z, automatically index to the next tool on the gang plate and start the next op without having to hit 'Cycle Start'. Other ops, turret and/or QCTP, as will gang tool ops adjacent to turret or QCTP ops, will have a 'G30' followed by 'M0' ( on the next line ), generated between ops. In order for this to work the lathe must be in 'Gang Tool' mode.
+
+    using_TailStock: Hints that the initial 'Z' move should be the first move, followed by 'X'. This allows a QCTP or turret tool to clear the tailstock, before engaging the work. If the operation uses a gang tool this is ignored. Also 'forceX_first_onFirstMove' is ignored if the operation is using a QCTP or turret tool.
 
     tormachMillLathing: Turn this to true if using Tormach mill as vertical lathe, tooling descriptions above apply.
 
@@ -130,6 +132,8 @@ Warnings: Some rudimentary warnings have been implemented in this post. If the p
 
 
 Mill turning:  Tormach mills can be used as a simple lathe and is pretty effective at doing some simple profiling. By creating a fixture to be held in a collet in the spindle; clamping the work piece to that fixture; clamping a lathe tool holder in the vise, this can be done. To enable this: turn property 'tormachMillLathing' to true. Unlike the SlantPRO, X+ and X- tool orientations are inverted. If the lathe tool cuts *from* X+ ( the right side of the spindle ) it needs to have a turret number of '0' in it's tool description in CAM. If the tool cuts from the left side of the mill it need to have a turret number > 0 ( this is an indication to the post processor the tool cuts from that direction ). In order to properly view the back plot in PathPilot or NC Corrector, the image needs to be rotated 180 degrees and turned upside-down, ie, Z axis should point down, Y axis back ( away from you ). CSS ( Use constant surface speed ) for the lathe tool MUST be turned off - and - 'Use feed per revolution' MUST be turned off. The property 'maximumSpindleSpeed' is ignored, there is no overriding clamp speed, becuase the mill is capable of much higher rpm. It also make for easier feed calculations. 
+
+Tailstock: Use of the tailstock is supported on a tool by tool basis by clicking the 'Use Tailstock' checkbox on the Tool tab in the operation setup in Fusion. By checking this, this forces a 'Z' move before the 'X' move on the initial move for the operation. This allows the live center to be cleared before any tool engagement begins. It's advised to allow for ample room to clear the live center when defining the X retract and home positions.
 
 Software practices: All development is done under version control, so if things get really screwed up, the current changes can be backed out easily. 'gold' output files, which attempt to exercise all the functionality, are kept so the output from a changed version can be checked ( diffed ) against the 'gold' files to immediately see if things have gone awry.
 
