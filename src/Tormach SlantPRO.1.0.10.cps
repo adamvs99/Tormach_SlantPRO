@@ -6,7 +6,7 @@ Tormach 15LSlantPRO Lathe post processor configuration.
 Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015-2016 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014-2016 Tormach, Inc.
 $Revision: 00001 $
-$Date: 2016-19-03 17:49:25 -0700 (to, 18 apr 2016) $
+$Date: 2016-02-08 18:10:30 -0700 (to, 02, aug 2016) $
 
 FORKID {88B77760-269E-4d46-8588-30814E7AC681}
 
@@ -82,12 +82,15 @@ Changes:
              was generated. Tapping, like threading emits gcode on 'last' cycle of 'onCyclePoint'.
 2016-18-04 : Added: property: partingOpFeedFix to control lead out feed rate from parting.
              Fixed: G30 generation for pure turret + gang setups
+2016-16-07 : Added: property: 'using_TailStock'. When set true this forces a 'Z' move as the initial move
+             before an 'X' move, if the tool is not a 'gang' tool.
+2016-16-07 : Removed: property: 'using_TailStock'. Using 'onSection' parameter 'operation:useTailstock'.
 
 == OUTSTANDING ISSUES =======================================================================================
 
  */
 
-var g_description = "Tormach 15LSlantPRO-1.1.23";
+var g_description = "Tormach 15LSlantPRO-1.1.25";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Tormach, Inc., (C) 2015-2016 Adam Silver";
@@ -729,7 +732,7 @@ function toolingInfo( warnings ) {
                 ++this.xPlusCount;
                 if ( lastToolType === toolType.XPLUS ) {
                     ++adjacentXPlusTooling;
-                    trLast.set30Type( tool30Type.TURRET )
+                    trLast.set30Type( tool30Type.TURRET );
                 }
                 if ( tr.toolOnGangPlate === false )  {
                     lastToolType = toolType.XPLUS;
@@ -815,7 +818,7 @@ function toolingInfo( warnings ) {
                 writeComment("...pull back to safe Z...");
                 writeBlock( zOutput.format( this.recommendedGangZ( ) ) );
             } 
-            else if ( tr.tool30Type !== tool30Type.ZONLY && this.xMinusCount == 0 ) {
+            else if ( tr.tool30Type !== tool30Type.ZONLY && this.xMinusCount === 0 ) {
                 writeln("");
                 writeBlock( gFormat.format(30), "Z #5422" );
             }
@@ -1349,7 +1352,7 @@ function _getToolCT( sectionId ) {
 function _getTrueX( _x ) {
     var ti = g_tooling.getToolInfo(  getCurrentSectionId( ) );
     
-    if ( ti.toolCuttingDir == toolType.XPLUS )
+    if ( ti.toolCuttingDir === toolType.XPLUS )
         return _x;
     
     if ( g_tooling.hasXMinusTools( ) || properties.using_GangTooling )
@@ -1361,9 +1364,8 @@ function _getTrueX( _x ) {
 function writeX(_x) {
     return properties.tormachMillLathing ? xrOutput.format( _getTrueX( _x ) ) : xOutput.format( _getTrueX( _x ) );
 }
-/**
-Writes the specified block.
-*/
+
+// Writes the specified block.
 function writeBlock( ) { writeWords2( g_sequenceNumber.nextLineNumber( ), arguments); }
 
 function formatComment( text ) {
@@ -1372,9 +1374,8 @@ function formatComment( text ) {
     return ";" + " " + text;
 }
 
-/**
-Output a comment.
-*/
+
+// Output a comment.
 function writeComment( text ) {
     writeln( formatComment( text ) );
 }
@@ -1457,7 +1458,7 @@ function _entryFixup( entry, minZ, minX, ct, maxComment ) {
     entry += "Z : " +  zFormat.format( minZ );
     for( var i = entry.length; i < xCol; ++i )
         entry += " ";
-    if ( minX != 0 )
+    if ( minX !== 0 )
         entry += "X : " +  xFormat.format( minX );
     for( var i = entry.length; i < ctCol; ++i )
         entry += " ";
@@ -1474,7 +1475,7 @@ function writeProgramStart( ) {
 }
 // Returns the tool information in an array.
 function writeInitMachineState( ) {
-    if ( properties.tormachMillLathing == false )
+    if ( properties.tormachMillLathing === false )
         writeBlock( gFormat.format(7) );
     writeBlock( gPlaneModal.format(18) );
     switch ( unit ) {
@@ -1628,6 +1629,7 @@ function onSection( ) {
     // special shim for parting ..
     g_partingSpeedMgr.setFeeds( currentSection );
 
+    var usesTailStock = hasParameter( "operation:useTailstock" ) && getParameter( "operation:useTailstock" ) === 1;
     var forceToolAndRetract = g_optionalState.transitionToCurState( );
     var toolInf = g_tooling.getToolInfo( );
     var sectionHasToolChange = forceToolAndRetract ||
@@ -1676,18 +1678,30 @@ function onSection( ) {
         if ( actionModifier !== "suppress" ) {
             var m = g_coolant.coolantOnZ( initialPosition.z );
             var upperZ = 0;
+            var isRegularOp = isStockTranferOp( ) === false;
+            var opIsGangOp = toolInf.isGang();
+            var forceX = properties.forceX_first_onFirstMove;
             
             if ( hasParameter( "stock-upper-z" ) )
                 upperZ = getParameter( "stock-upper-z" );
+            if ( isRegularOp && usesTailStock )
+                forceX = false;
 
             // TODO: Force X move before Z. revisit this logic to handle transition fomr X+ to X- tooling
-            if ( ! isStockTranferOp( ) && 
-                ( toolInf.isGang( ) || properties.forceX_first_onFirstMove || initialPosition.z <= upperZ ) ) {
+            if ( isRegularOp && usesTailStock === false &&
+                ( opIsGangOp || forceX || initialPosition.z <= upperZ ) ) {
                 writeBlock( gMotionModal.format(0), writeX(initialPosition.x) );
                 writeBlock( zOutput.format(initialPosition.z), m );
                 g_retract.onMove( );
             }
-            else if ( ! isStockTranferOp( ) )  {
+            // add support for tailstock. In this case a Z move is desired before an
+            // X move...
+            else if ( isRegularOp && usesTailStock && opIsGangOp === false ) {                
+                writeBlock( gMotionModal.format(0), zOutput.format(initialPosition.z), m );
+                writeBlock( writeX(initialPosition.x) );
+                g_retract.onMove( );
+            }
+            else if ( isRegularOp )  {
                 writeBlock( gMotionModal.format(0), 
                             writeX(initialPosition.x),
                             zOutput.format(initialPosition.z), m );
