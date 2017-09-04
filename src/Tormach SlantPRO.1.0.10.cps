@@ -3,7 +3,7 @@ Copyright (C) 2012-2013 by Autodesk, Inc.
 All rights reserved.
 
 Tormach 15LSlantPRO Lathe post processor configuration.
-Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015-2016 Adam Silver
+Changes for Tormach 15LSlantPRO Lathe: Copyright (C) 2015-2017 Adam Silver
 Tormach 15LSlantPRO Lathe: initial thread depth algorithm: Copyright (C) 2014-2016 Tormach, Inc.
 $Revision: 00001 $
 $Date: 2016-02-08 18:10:30 -0700 (to, 02, aug 2016) $
@@ -85,12 +85,14 @@ Changes:
 2016-16-07 : Added: property: 'using_TailStock'. When set true this forces a 'Z' move as the initial move
              before an 'X' move, if the tool is not a 'gang' tool.
 2016-16-07 : Removed: property: 'using_TailStock'. Using 'onSection' parameter 'operation:useTailstock'.
+2017-06-07 : Changed: turret tool change time fomr 2 sec to 15 sec.
+2017-09-04 : Add support for Tormach USB IO M-code interface (PN: 32616)
 
 == OUTSTANDING ISSUES =======================================================================================
 
  */
 
-var g_description = "Tormach 15LSlantPRO-1.1.25";
+var g_description = "Tormach 15LSlantPRO-1.1.27";
 vendor = "Adam Silver";
 vendorUrl = "http://www.autodesk.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc. ; (C) 2015-2016 Tormach, Inc., (C) 2015-2016 Adam Silver";
@@ -135,6 +137,7 @@ properties = {
     warnings: true,                 // issues a warning is something is found out of kilter
     partLoadTime: 65,               // time it takes to reload a part in the holding device ( in seconds )
     partingOpFeedFix: false,        // set true to adjust feeds in parting operations.s
+    usbIO: false,                   // add support for USBIO on turret vs gang tool
 //  actionsFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\Actions",             // actions code file folder     
 //  passThroughFilePath : "C:\\Users\\Public\\Documents\\Autodesk\\Inventor HSM 2015\\PassthroughCode"  // pass through code file folder    
     actionsFilePath : "/Users/adamvs/Autodesk/Fusion 360 CAM/Actions",             // actions code file folder     
@@ -341,6 +344,7 @@ var kTapFormat = createFormat({decimals:(unit === MM ? 3 : 4), forceDecimal:true
 var rThreadFormat = createFormat({decimals:1, forceDecimal:true, zeropad:true});
 var qThreadFormat = createFormat({decimals:1, forceDecimal:true, zeropad:true});
 var hThreadFormat = createFormat({decimals:0});
+var pmFormat = createFormat({decimals:0});
 var feedFormat = createFormat({decimals:(unit === MM ? 4 : 5), forceDecimal:true});
 var toolFormat = createFormat({decimals:0, width:4, zeropad:true});
 var rpmFormat = createFormat({decimals:0});
@@ -357,6 +361,7 @@ var feedOutput = createVariable({prefix:"F"}, feedFormat);
 var sOutput = createVariable({prefix:"S", force:true}, rpmFormat);
 var dOutput = createVariable({prefix:"D", force:true}, rpmFormat);
 var pOutput = createVariable({prefix:"P", force:true}, pFormat);
+var pmOutput = createVariable({prefix:"P", force:true}, pmFormat);
 var iThreadOutput = createVariable({prefix:"I", force:true}, iThreadFormat);
 var jThreadOutput = createVariable({prefix:"J", force:true}, jThreadFormat);
 var kThreadOutput = createVariable({prefix:"K", force:true}, kThreadFormat);
@@ -462,7 +467,7 @@ function actionsInfo ( tooling, warnings ) {
             return;
     // there was no M8 in the imported file, but the tool is set for coolant
     // iterate through the gcode at append M8 at the first 'Z' movement.
-        var coolantStr = coolantType === COOLANT_THROUGH_TOOL ? "M88" : "M8";
+        var coolantStr = coolantType === COOLANT_THROUGH_TOOL ? "M8" : "M8";
         action.insertCoolant( coolantStr );
     };
     
@@ -510,6 +515,7 @@ function toolRecord ( section_Id, warnings ) {
     this.c_barPullerToolNum = 26; // DO NOT CHANGE
     this.isLastTool = false;
     this.toolIsNewTool = true;
+    this.coolantCode = 0;
 
     
     if ( section_Id < 0 || section_Id >= getNumberOfSections( ) )  {
@@ -554,8 +560,12 @@ function toolRecord ( section_Id, warnings ) {
                 break;
             }
     }
- 
-
+    if (tool.turret > 0 && properties.usbIO) this.coolantCode = 5;
+    if (this.toolOnGangPlate && properties.usbIO)
+        if (this.toolNum >= 23 && this.toolNum <= 25) this.coolantCode = this.toolNum - 17; // 23->6, 24->7, 25->8
+//  debugOut( "toolRec.toolNum: " + this.toolNum + "  ... toolRec.coolantCode: " + this.coolantCode);
+   
+        
     this.toolType = tool.getType( );
     this.toolDiam = tool.getDiameter( );
     this.feedMode = section.feedMode === FEED_PER_REVOLUTION ? 95 : 94;
@@ -770,8 +780,8 @@ function toolingInfo( warnings ) {
     if ( properties.using_GangTooling === true )
         this.totalToolChangeTime = this.adjacentGangToolingCount * ( this.maxGangToolSafeZ + properties.gangToolSafeMargin ) / _rapid * 60;
     this.totalToolChangeTime += normalG30Count * ( this.maxTurretToolZ + properties.gangToolSafeMargin ) / _rapid * 60;
-    this.totalToolChangeTime += adjacentXPlusTooling * 2; // two seconds to change turret tool.
-    this.totalToolChangeTime += this.xMinusCount * properties.manualToolChangeTime; // two seconds to change turret tool.
+    this.totalToolChangeTime += adjacentXPlusTooling * 15; // two seconds to change turret tool.
+    this.totalToolChangeTime += this.xMinusCount * properties.manualToolChangeTime; // 15 seconds to change turret tool.
     
     this.getLatheModePrompt = function( ) { return this.promptString; };
     this.usesGangOptimization = function( ) { return this.adjacentGangTooling > 0; };
@@ -861,25 +871,37 @@ function coolant( ) {
 
     this.zStateOff = function( ) { this.coolantOnFirstZ = 0; };
     this.getCoolantMode = function( ) { return this.coolantMode; };
+    this.coolantBlock = function( on ) {
+        var codes = (on === "on") ? [8,64] : [9,65];
+        var toolInf = g_tooling.getToolInfo( );
+        var blk = mFormat.format( codes[0] );
+        
+        if ( toolInf !== undefined && toolInf.coolantCode > 0 ) blk += " " + mFormat.format(codes[1]) + " " + pmOutput.format(toolInf.coolantCode);
+//       writeln(blk);
+        return blk;
+    };
+    
     this.coolantOnZ = function( _z ) {
         var ret;
         if ( this.coolantOnFirstZ && _z ) {
-            ret = mFormat.format( ( this.coolantOnFirstZ === COOLANT_FLOOD ) ? 8 : 88 );
+            ret = this.coolantBlock( "on" );
             this.coolantOnFirstZ = 0;
         }
         return ret;
     };
     
-    this.setCoolant = function( actions, coolant ) {
+    this.setCoolant = function( coolant, actions ) {
         if ( coolant === this.coolantMode )
             return; // coolant is already in same state
 
         var m = undefined;
+        var toolInf = g_tooling.getToolInfo( );
         if ( coolant === COOLANT_OFF ) {
             var action = actions.findActionForCurrentSection( );
 
-            if ( action === undefined || action.M9 === false ) 
-                writeBlock(mFormat.format( ( this.coolantMode === COOLANT_THROUGH_TOOL ) ? 89 : 9 ) );
+            if ( action === undefined || action.M9 === false )
+                var blk = this.coolantBlock( "off" );
+                writeBlock(blk);
             this.coolantMode = COOLANT_OFF;
             return;
         }
@@ -895,8 +917,7 @@ function coolant( ) {
                 m = 9;
         }
 
-        if ( m )
-            writeBlock( mFormat.format( m ) );
+        if ( m ) this.setCoolant( COOLANT_OFF, undefined);
         this.coolantMode = coolant;
     };
 }
@@ -1652,7 +1673,7 @@ function onSection( ) {
 
 
     //set coolant after we have positioned at Z
-    g_coolant.setCoolant( g_actions, tool.coolant );
+    g_coolant.setCoolant( tool.coolant, g_actions );
 
     forceAny( );
     gMotionModal.reset( );
@@ -1979,10 +2000,10 @@ function onCycleEnd( ) {
 function onCommand(command) {
     switch (command) {
         case COMMAND_COOLANT_OFF:
-            g_coolant.setCoolant( g_actions, COOLANT_OFF );
+            g_coolant.setCoolant( COOLANT_OFF, g_actions );
             return;
         case COMMAND_COOLANT_ON:
-            g_coolant.setCoolant( g_actions, COOLANT_FLOOD );
+            g_coolant.setCoolant( COOLANT_FLOOD, g_actions );
             return;
         case COMMAND_STOP:
             writeBlock( mFormat.format( 0 ) );
